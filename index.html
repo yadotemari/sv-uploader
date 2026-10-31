@@ -442,6 +442,7 @@ $('uploadBtn').onclick = async () => {
     if (pid && !$('noPlace').checked) photo.places = [{ placeId: pid }];
     const res = await api('/photo', {method:'POST', body:JSON.stringify(photo)});
     let msg = '完了しました。公開審査に入りました。\nID: ' + res.photoId.id;
+    { const pend = loadPendLvl(); pend[res.photoId.id] = photo.pose.level; savePendLvl(pend); }
     if (editing){
       try{ await api('/photo/' + encodeURIComponent(editing.photoId.id), {method:'DELETE'}); msg = '差し替えました。新しい写真が公開審査に入り、古い写真は削除しました。\nID: ' + res.photoId.id; }
       catch(e){ msg += '\n⚠ 古い写真の削除に失敗しました。④の一覧から手動で削除してください。'; }
@@ -464,6 +465,7 @@ async function loadList(){
   try{
     const j = await api('/photos?view=BASIC&pageSize=100');
     const photos = j.photos || [];
+    if (await fixPendingLevels(photos)) return loadList();
     placed.clearLayers();
     if (!photos.length){ box.textContent = 'まだ投稿はありません'; return; }
     box.innerHTML = '';
@@ -500,6 +502,27 @@ async function loadList(){
   }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
 }
 $('refreshBtn').onclick = loadList;
+
+/* ---------- 公開後に階数を自動で入れ直す ---------- */
+function loadPendLvl(){ try{ return JSON.parse(store.get('svPendLvl') || '{}'); }catch(e){ return {}; } }
+function savePendLvl(o){ store.set('svPendLvl', JSON.stringify(o)); }
+async function fixPendingLevels(photos){
+  const pend = loadPendLvl(); let fixed = false, changed = false;
+  const ids = new Set(photos.map(p => p.photoId.id));
+  for (const [id, want] of Object.entries(pend)){
+    if (!ids.has(id)){ continue; }                       // まだ一覧に出ていない
+    const p = photos.find(x => x.photoId.id === id);
+    if (p.mapsPublishStatus !== 'PUBLISHED') continue;   // 公開を待つ
+    const have = p.pose && p.pose.level;
+    if (have && have.name === want.name && (have.number || 0) === (want.number || 0)){ delete pend[id]; changed = true; continue; }
+    try{
+      await api('/photo/' + encodeURIComponent(id) + '?updateMask=pose.level', {method:'PUT', body:JSON.stringify({photoId:{id}, pose:{level:want}})});
+      delete pend[id]; changed = true; fixed = true;
+    }catch(e){}
+  }
+  if (changed) savePendLvl(pend);
+  return fixed;
+}
 
 /* ---------- 館内の写真同士をつなぐ ---------- */
 let listPhotos = [];
