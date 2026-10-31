@@ -43,6 +43,9 @@
   .item small{color:var(--sub);display:block}
   .heading-arrow{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:22px solid var(--accent);transform-origin:50% 70%}
   a{color:var(--accent)}
+  .editbar{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg);border:1px dashed var(--accent);font-size:13px;white-space:pre-wrap}
+  .item .btns{display:flex;flex-direction:column;gap:6px}
+  .item .btns button{padding:6px 12px;font-size:13px}
   @media (max-width:600px){ .row{grid-template-columns:1fr} #map{height:320px} }
 </style>
 </head>
@@ -109,14 +112,19 @@
     <label for="captureTime">撮影日時</label>
     <input type="datetime-local" id="captureTime">
     <div id="timeHint" class="hint"></div>
-    <div style="margin-top:12px"><button id="uploadBtn" disabled>アップロードして公開</button></div>
+    <div id="editBar" class="editbar" style="display:none"></div>
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <button id="uploadBtn" disabled>アップロードして公開</button>
+      <button id="saveEditBtn" style="display:none">位置・向きだけ保存</button>
+      <button id="cancelEditBtn" class="ghost" style="display:none">修正をやめる</button>
+    </div>
     <div id="upStatus" class="status"></div>
   </section>
 
   <section class="card">
     <h2><span class="num">4</span>投稿済みの写真</h2>
     <button id="refreshBtn" class="ghost" disabled>一覧を更新</button>
-    <div class="hint">公開まで数時間〜数日かかることがあります。Google側で位置や向きが補正される場合があります。</div>
+    <div class="hint">公開まで数時間〜数日かかることがあります。Google側で位置や向きが補正される場合があります。<br>「修正」を押すと、位置・向き・階数を直せます。撮影日時も直したいときは、修正中に①で元の写真を選び直すと、正しい日時で差し替えます。</div>
     <div id="list" class="list" style="margin-top:10px"></div>
   </section>
 </main>
@@ -216,7 +224,56 @@ $('file').onchange = () => {
   $('timeHint').style.color = m ? 'var(--ok)' : 'var(--warn)';
   updateUploadBtn();
 };
-function updateUploadBtn(){ $('uploadBtn').disabled = !(token && file && pos); }
+let editing = null;
+function updateUploadBtn(){
+  $('uploadBtn').disabled = !(token && file && pos);
+  $('uploadBtn').textContent = editing ? '写真を差し替えて公開（撮影日時も修正）' : 'アップロードして公開';
+  $('saveEditBtn').disabled = !(token && pos);
+}
+function buildPose(){
+  return {
+    latLngPair: { latitude: pos.lat, longitude: pos.lng },
+    heading: +$('heading').value,
+    level: { number: +$('levelNum').value, name: $('levelName').value.trim() || ($('levelNum').value + 'F') }
+  };
+}
+function startEdit(p){
+  editing = p;
+  const pose = p.pose || {};
+  if (pose.latLngPair) setPos(L.latLng(pose.latLngPair.latitude, pose.latLngPair.longitude));
+  $('heading').value = Math.round(pose.heading || 0); $('heading').oninput();
+  if (pose.level){ $('levelNum').value = pose.level.number || 0; $('levelName').value = pose.level.name || ''; }
+  $('editBar').style.display = 'block';
+  $('editBar').innerHTML = '';
+  if (p.thumbnailUrl) $('editBar').insertAdjacentHTML('beforeend', `<img src="${p.thumbnailUrl}" alt="" style="width:120px;aspect-ratio:2/1;object-fit:cover;border-radius:6px;display:block;margin-bottom:6px">`);
+  $('editBar').insertAdjacentText('beforeend',
+    '修正中の写真です。\n・位置・向き・階数だけ直す → ②で直して「位置・向きだけ保存」\n・撮影日時も直す → ①で元の写真を選び直して「写真を差し替えて公開」（古い写真は自動で削除されます）');
+  $('saveEditBtn').style.display = ''; $('cancelEditBtn').style.display = '';
+  $('upStatus').textContent = '';
+  updateUploadBtn();
+  document.getElementById('map').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function stopEdit(){
+  editing = null;
+  $('editBar').style.display = 'none';
+  $('saveEditBtn').style.display = 'none'; $('cancelEditBtn').style.display = 'none';
+  updateUploadBtn();
+}
+$('cancelEditBtn').onclick = stopEdit;
+$('saveEditBtn').onclick = async () => {
+  if (!editing) return;
+  const st = $('upStatus'); st.className = 'status'; st.textContent = '保存中…';
+  $('saveEditBtn').disabled = true;
+  try{
+    const id = editing.photoId.id;
+    await api('/photo/' + encodeURIComponent(id) + '?updateMask=pose.heading,pose.lat_lng_pair,pose.level',
+      {method:'PUT', body: JSON.stringify({ photoId:{ id }, pose: buildPose() })});
+    st.className = 'status ok'; st.textContent = '位置・向きを保存しました。Googleマップへの反映には時間がかかることがあります。';
+    stopEdit(); loadList();
+  }catch(e){
+    st.className = 'status err'; st.textContent = 'エラー：' + e.message;
+  }finally{ updateUploadBtn(); }
+};
 
 /* ---------- API ---------- */
 async function api(path, opt = {}){
@@ -241,18 +298,20 @@ $('uploadBtn').onclick = async () => {
     st.textContent = '3/3 位置情報を登録中…';
     const photo = {
       uploadReference: { uploadUrl },
-      pose: {
-        latLngPair: { latitude: pos.lat, longitude: pos.lng },
-        heading: +$('heading').value,
-        level: { number: +$('levelNum').value, name: $('levelName').value.trim() || ($('levelNum').value + 'F') }
-      },
+      pose: buildPose(),
       captureTime: new Date($('captureTime').value || Date.now()).toISOString()
     };
     const pid = $('placeId').value.trim();
     if (pid) photo.places = [{ placeId: pid }];
     const res = await api('/photo', {method:'POST', body:JSON.stringify(photo)});
+    let msg = '完了しました。公開審査に入りました。\nID: ' + res.photoId.id;
+    if (editing){
+      try{ await api('/photo/' + encodeURIComponent(editing.photoId.id), {method:'DELETE'}); msg = '差し替えました。新しい写真が公開審査に入り、古い写真は削除しました。\nID: ' + res.photoId.id; }
+      catch(e){ msg += '\n⚠ 古い写真の削除に失敗しました。④の一覧から手動で削除してください。'; }
+      stopEdit();
+    }
     st.className = 'status ok';
-    st.textContent = '完了しました。公開審査に入りました。\nID: ' + res.photoId.id;
+    st.textContent = msg;
     $('file').value = ''; file = null; $('preview').style.display = 'none'; $('fileInfo').textContent = '';
     loadList();
   }catch(e){
@@ -285,7 +344,11 @@ async function loadList(){
         try{ await api('/photo/' + encodeURIComponent(p.photoId.id), {method:'DELETE'}); loadList(); }
         catch(e){ alert('削除に失敗しました：' + e.message); }
       };
-      el.appendChild(del); box.appendChild(el);
+      const edit = document.createElement('button'); edit.textContent = '修正';
+      edit.onclick = () => startEdit(p);
+      const btns = document.createElement('div'); btns.className = 'btns';
+      btns.appendChild(edit); btns.appendChild(del);
+      el.appendChild(btns); box.appendChild(el);
       if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).addTo(placed);
     });
   }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
