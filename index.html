@@ -65,6 +65,8 @@
   .lblprev{text-align:center}
   .lblprev canvas{width:160px;height:160px;border-radius:50%;background:repeating-conic-gradient(#8a7b73 0 25%,#b3a59c 0 50%) 50%/20px 20px;display:block;margin:8px auto 0}
   @media (max-width:600px){ .lblgrid{grid-template-columns:1fr} }
+  .item{grid-template-columns:22px 96px 1fr auto !important}
+  .item .linkChk{width:18px;height:18px}
   .item .btns{display:flex;flex-direction:column;gap:6px}
   .item .btns button{padding:6px 12px;font-size:13px}
   @media (max-width:600px){ .row{grid-template-columns:1fr} #map{height:320px} }
@@ -245,6 +247,15 @@
     <h2><span class="num">4</span>投稿済みの写真</h2>
     <button id="refreshBtn" class="ghost" disabled>一覧を更新</button>
     <div class="hint">公開まで数時間〜数日かかることがあります。Google側で位置や向きが補正される場合があります。<br>「修正」を押すと、位置・向き・階数を直せます。撮影日時も直したいときは、修正中に①で元の写真を選び直すと、正しい日時で差し替えます。</div>
+    <div class="labelbox" id="linkBox">
+      <b>写真同士をつなぐ（館内の写真を建物の中に並べて見せる）</b>
+      <div class="hint">同じ宿の写真にチェックを入れて押すと、近い写真同士を自動でつなぎます。つながった写真は、写真の中の矢印で行き来でき、Googleマップでもそれぞれの位置に表示されやすくなります（最終的な表示はGoogleが決めます）。写真を追加したら、新しい写真と近くの写真にチェックを入れて、もう一度押してください。</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button id="linkBtn" disabled>チェックした写真同士をつなぐ</button>
+        <button id="linkAll" class="ghost" disabled>全部チェック</button>
+      </div>
+      <div id="linkStatus" class="status"></div>
+    </div>
     <div id="list" class="list" style="margin-top:10px"></div>
   </section>
 </main>
@@ -456,13 +467,20 @@ async function loadList(){
     placed.clearLayers();
     if (!photos.length){ box.textContent = 'まだ投稿はありません'; return; }
     box.innerHTML = '';
+    listPhotos = photos;
+    const byId = Object.fromEntries(photos.map(p => [p.photoId.id, p]));
+    photos.forEach(p => (p.connections || []).forEach(c => {
+      const q = byId[c.target && c.target.id];
+      if (q && p.pose && q.pose && p.photoId.id < q.photoId.id)
+        L.polyline([[p.pose.latLngPair.latitude, p.pose.latLngPair.longitude], [q.pose.latLngPair.latitude, q.pose.latLngPair.longitude]], {color:'#4f7a5a', weight:2, dashArray:'4 3'}).addTo(placed);
+    }));
     photos.forEach(p => {
       const ll = p.pose && p.pose.latLngPair;
       const lvl = p.pose && p.pose.level ? p.pose.level.name : '';
       const status = STATUS_JA[p.mapsPublishStatus] || p.mapsPublishStatus || '審査中';
       const el = document.createElement('div'); el.className = 'item';
-      el.innerHTML = `<img src="${p.thumbnailUrl || ''}" alt="">
-        <div>${status}${lvl ? '・' + lvl : ''}<small>${ll ? ll.latitude.toFixed(6) + ', ' + ll.longitude.toFixed(6) : ''}　閲覧 ${p.viewCount || 0}</small>
+      el.innerHTML = `<input type="checkbox" class="linkChk" value="${p.photoId.id}" aria-label="つなぐ写真に選ぶ"><img src="${p.thumbnailUrl || ''}" alt="">
+        <div>${status}${lvl ? '・' + lvl : ''}<small>${ll ? ll.latitude.toFixed(6) + ', ' + ll.longitude.toFixed(6) : ''}　閲覧 ${p.viewCount || 0}　つながり ${(p.connections || []).length}</small>
         ${p.shareLink ? `<a href="${p.shareLink}" target="_blank" rel="noopener">Googleマップで見る</a>` : ''}</div>`;
       const del = document.createElement('button'); del.className = 'ghost'; del.textContent = '削除';
       del.onclick = async () => {
@@ -477,9 +495,56 @@ async function loadList(){
       el.appendChild(btns); box.appendChild(el);
       if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).addTo(placed);
     });
+    box.querySelectorAll('.linkChk').forEach(c => c.addEventListener('change', updateLinkBtn));
+    updateLinkBtn();
   }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
 }
 $('refreshBtn').onclick = loadList;
+
+/* ---------- 館内の写真同士をつなぐ ---------- */
+let listPhotos = [];
+function checkedIds(){ return [...document.querySelectorAll('.linkChk:checked')].map(c => c.value); }
+function updateLinkBtn(){
+  const n = checkedIds().length;
+  $('linkBtn').disabled = !(token && n >= 2);
+  $('linkBtn').textContent = n >= 2 ? `チェックした${n}枚をつなぐ` : 'チェックした写真同士をつなぐ（2枚以上）';
+  $('linkAll').disabled = !(token && listPhotos.length >= 2);
+}
+$('linkAll').onclick = () => { document.querySelectorAll('.linkChk').forEach(c => c.checked = true); updateLinkBtn(); };
+function distM(a, b){
+  const R = 6371000, toR = Math.PI / 180;
+  const dLat = (b.latitude - a.latitude) * toR, dLng = (b.longitude - a.longitude) * toR;
+  const x = dLng * Math.cos((a.latitude + b.latitude) / 2 * toR);
+  return Math.sqrt(x * x + dLat * dLat) * R;
+}
+$('linkBtn').onclick = async () => {
+  const ids = checkedIds();
+  const sel = listPhotos.filter(p => ids.includes(p.photoId.id) && p.pose && p.pose.latLngPair);
+  if (sel.length < 2){ alert('位置のわかる写真を2枚以上チェックしてください'); return; }
+  const far = sel.some(p => sel.every(q => q === p || distM(p.pose.latLngPair, q.pose.latLngPair) > 200));
+  if (far && !confirm('200m以上離れた写真が含まれています。別の宿の写真ではありませんか？このままつなぎますか？')) return;
+  // 近い写真2枚とつなぐ（相互につなぐ）
+  const links = Object.fromEntries(sel.map(p => [p.photoId.id, new Set((p.connections || []).map(c => c.target.id))]));
+  sel.forEach(p => {
+    sel.filter(q => q !== p)
+      .sort((a, b) => distM(p.pose.latLngPair, a.pose.latLngPair) - distM(p.pose.latLngPair, b.pose.latLngPair))
+      .slice(0, 2)
+      .forEach(q => { links[p.photoId.id].add(q.photoId.id); links[q.photoId.id].add(p.photoId.id); });
+  });
+  const st = $('linkStatus'); st.className = 'status'; $('linkBtn').disabled = true;
+  let ok = 0, ng = 0, i = 0;
+  for (const [id, set] of Object.entries(links)){
+    st.textContent = `つないでいます… ${++i} / ${sel.length}`;
+    try{
+      await api('/photo/' + encodeURIComponent(id) + '?updateMask=connections',
+        {method:'PUT', body:JSON.stringify({photoId:{id}, connections:[...set].map(t => ({target:{id:t}}))})});
+      ok++;
+    }catch(e){ ng++; }
+  }
+  st.className = 'status ' + (ng ? 'err' : 'ok');
+  st.textContent = ng ? `${ok}枚はつなげました。${ng}枚はできませんでした（公開前の写真はつなげないことがあります。公開後にもう一度押してください）。` : `${ok}枚をつなぎました。Googleマップへの反映には時間がかかります。`;
+  loadList();
+};
 
 /* ---------- モード切替 ---------- */
 let roadMap = null, roadLine = null, road = [];
