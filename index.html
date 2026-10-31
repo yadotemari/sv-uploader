@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>館内360アップローダー</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --bg:#faf7f2; --card:#fff; --ink:#3a2e2a; --sub:#8a7b73; --line:#e8dfd6;
+    --accent:#b5574b; --accent-ink:#fff; --ok:#4f7a5a; --warn:#b5574b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#1f1b19; --card:#2a2522; --ink:#f1e9e3; --sub:#b3a59c; --line:#3d3531;
+      --accent:#d27a6c; --accent-ink:#1f1b19; --ok:#8fbf9b; --warn:#e08b7e; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic UI",sans-serif;font-size:15px;line-height:1.6}
+  header{padding:16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+  h1{font-size:18px;margin:0;letter-spacing:.05em}
+  main{max-width:960px;margin:0 auto;padding:16px;display:grid;gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card h2{font-size:15px;margin:0 0 12px;display:flex;gap:8px;align-items:center}
+  .num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--accent);color:var(--accent-ink);font-size:12px}
+  label{display:block;font-size:13px;color:var(--sub);margin:10px 0 4px}
+  input[type=text],input[type=number],input[type=datetime-local]{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font-size:15px}
+  input[type=file]{width:100%}
+  input[type=range]{width:100%}
+  button{white-space:nowrap;padding:10px 16px;border-radius:8px;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink);font-size:15px;cursor:pointer}
+  button.ghost{background:transparent;color:var(--accent)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  #map{height:420px;border-radius:8px;border:1px solid var(--line)}
+  .hint{font-size:12px;color:var(--sub);margin-top:4px}
+  .status{font-size:13px;margin-top:8px;white-space:pre-wrap}
+  .status.ok{color:var(--ok)} .status.err{color:var(--warn)}
+  #preview{width:100%;aspect-ratio:2/1;object-fit:cover;border-radius:8px;display:none;margin-top:8px}
+  .list{display:grid;gap:8px}
+  .item{display:grid;grid-template-columns:96px 1fr auto;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:8px}
+  .item img{width:96px;aspect-ratio:2/1;object-fit:cover;border-radius:6px}
+  .item small{color:var(--sub);display:block}
+  .heading-arrow{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:22px solid var(--accent);transform-origin:50% 70%}
+  a{color:var(--accent)}
+  @media (max-width:600px){ .row{grid-template-columns:1fr} #map{height:320px} }
+</style>
+</head>
+<body>
+<header>
+  <h1>館内360アップローダー</h1>
+  <div>
+    <span id="who" class="hint"></span>
+    <button id="loginBtn" disabled>Googleでログイン</button>
+  </div>
+</header>
+
+<main>
+  <section class="card" id="setupCard">
+    <h2><span class="num">0</span>初期設定（最初の1回だけ）</h2>
+    <label for="clientId">OAuth クライアントID</label>
+    <input type="text" id="clientId" placeholder="xxxxxxxx.apps.googleusercontent.com">
+    <div class="hint">Google Cloudで作成したクライアントIDを貼り付けて保存してください。この端末のブラウザに保存されます。</div>
+    <div style="margin-top:8px"><button id="saveId" class="ghost">保存</button></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">1</span>360度写真を選ぶ</h2>
+    <input type="file" id="file" accept="image/jpeg">
+    <img id="preview" alt="">
+    <div class="hint">Insta360アプリで「360度写真」として書き出した横長（2:1）のJPGを選んでください。</div>
+    <div id="fileInfo" class="status"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">2</span>位置と向きを決める</h2>
+    <label for="search">場所を探す（住所や宿名）</label>
+    <div style="display:flex;gap:8px"><input type="text" id="search" placeholder="例：志摩市 的矢"><button id="searchBtn" class="ghost">検索</button></div>
+    <div id="map" style="margin-top:10px"></div>
+    <div class="hint">地図をタップすると撮影位置にピンが立ちます（ドラッグで微調整）。航空写真で建物の中の位置を合わせてください。</div>
+    <div class="row">
+      <div>
+        <label>緯度 / 経度</label>
+        <input type="text" id="latlng" readonly placeholder="地図をタップ">
+      </div>
+      <div>
+        <label for="heading">向き（写真の中心が向く方角）：<b id="headingVal">0</b>°</label>
+        <input type="range" id="heading" min="0" max="359" value="0">
+        <div class="hint">0=北 / 90=東 / 180=南 / 270=西。Insta360で撮った時にレンズ正面が向いていた方角です。</div>
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label for="levelNum">階数（数字）</label>
+        <input type="number" id="levelNum" value="1" step="1">
+      </div>
+      <div>
+        <label for="levelName">階の表示名</label>
+        <input type="text" id="levelName" value="1F" maxlength="3">
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">3</span>宿とひもづけて公開</h2>
+    <label for="placeId">宿のプレイスID</label>
+    <input type="text" id="placeId" placeholder="ChIJ...">
+    <div class="hint"><a href="https://developers.google.com/maps/documentation/places/web-service/place-id" target="_blank" rel="noopener">プレイスIDファインダー</a>で宿名を検索してコピーしてください。宿ごとに保存されます。</div>
+    <label for="captureTime">撮影日時</label>
+    <input type="datetime-local" id="captureTime">
+    <div style="margin-top:12px"><button id="uploadBtn" disabled>アップロードして公開</button></div>
+    <div id="upStatus" class="status"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">4</span>投稿済みの写真</h2>
+    <button id="refreshBtn" class="ghost" disabled>一覧を更新</button>
+    <div class="hint">公開まで数時間〜数日かかることがあります。Google側で位置や向きが補正される場合があります。</div>
+    <div id="list" class="list" style="margin-top:10px"></div>
+  </section>
+</main>
+
+<script>
+const API = 'https://streetviewpublish.googleapis.com/v1';
+const SCOPE = 'https://www.googleapis.com/auth/streetviewpublish';
+const $ = id => document.getElementById(id);
+const store = {
+  get(k){ try{ return localStorage.getItem(k) }catch(e){ return null } },
+  set(k,v){ try{ localStorage.setItem(k,v) }catch(e){} }
+};
+
+let token = null, tokenClient = null, pos = null, marker = null, file = null;
+
+/* ---------- 初期設定 ---------- */
+$('clientId').value = store.get('svClientId') || '';
+$('placeId').value = store.get('svPlaceId') || '';
+if (store.get('svClientId')) $('setupCard').querySelector('h2').insertAdjacentHTML('beforeend','<span class="hint">（設定済み）</span>');
+$('saveId').onclick = () => { store.set('svClientId', $('clientId').value.trim()); initAuth(); alert('保存しました'); };
+$('placeId').onchange = () => store.set('svPlaceId', $('placeId').value.trim());
+
+function initAuth(){
+  const id = $('clientId').value.trim();
+  if (!id || !window.google || !google.accounts) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: id, scope: SCOPE,
+    callback: (r) => {
+      if (r.error) { alert('ログインに失敗しました: ' + r.error); return; }
+      token = r.access_token;
+      $('who').textContent = 'ログイン中';
+      $('loginBtn').textContent = '再ログイン';
+      $('refreshBtn').disabled = false;
+      updateUploadBtn(); loadList();
+    }
+  });
+  $('loginBtn').disabled = false;
+}
+window.addEventListener('load', () => { const t = setInterval(() => { if (window.google && google.accounts){ clearInterval(t); initAuth(); } }, 200); });
+$('loginBtn').onclick = () => tokenClient && tokenClient.requestAccessToken({prompt: token ? '' : 'consent'});
+
+/* ---------- 地図 ---------- */
+const map = L.map('map').setView([34.36, 136.85], 16);
+const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'});
+const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:20, attribution:'Esri World Imagery'});
+sat.addTo(map);
+L.control.layers({'航空写真':sat,'地図':street}).addTo(map);
+const placed = L.layerGroup().addTo(map);
+
+function arrowIcon(deg){
+  return L.divIcon({className:'', iconSize:[16,22], iconAnchor:[8,15],
+    html:`<div class="heading-arrow" style="transform:rotate(${deg}deg)"></div>`});
+}
+function setPos(latlng){
+  pos = latlng;
+  if (!marker){
+    marker = L.marker(latlng, {draggable:true, icon:arrowIcon(+$('heading').value)}).addTo(map);
+    marker.on('dragend', e => setPos(e.target.getLatLng()));
+  } else marker.setLatLng(latlng);
+  $('latlng').value = latlng.lat.toFixed(7) + ', ' + latlng.lng.toFixed(7);
+  updateUploadBtn();
+}
+map.on('click', e => setPos(e.latlng));
+$('heading').oninput = () => { $('headingVal').textContent = $('heading').value; if (marker) marker.setIcon(arrowIcon(+$('heading').value)); };
+
+$('searchBtn').onclick = async () => {
+  const q = $('search').value.trim(); if (!q) return;
+  try{
+    const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ja&q=' + encodeURIComponent(q));
+    const j = await r.json();
+    if (j[0]) map.setView([+j[0].lat, +j[0].lon], 19); else alert('見つかりませんでした');
+  }catch(e){ alert('検索に失敗しました'); }
+};
+
+/* ---------- 写真 ---------- */
+function toLocalInput(d){ const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+$('file').onchange = () => {
+  file = $('file').files[0] || null;
+  $('fileInfo').textContent = ''; $('fileInfo').className = 'status';
+  if (!file){ $('preview').style.display='none'; updateUploadBtn(); return; }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const w = img.naturalWidth, h = img.naturalHeight, mp = (w*h/1e6).toFixed(1);
+    const okRatio = Math.abs(w/h - 2) < 0.02, okSize = w*h >= 7.5e6;
+    $('fileInfo').textContent = `${w}×${h}（${mp}MP）` + (okRatio ? '' : '\n⚠ 縦横比が2:1ではありません') + (okSize ? '' : '\n⚠ 7.5MP未満のため公開されない可能性があります');
+    $('fileInfo').className = 'status ' + (okRatio && okSize ? 'ok' : 'err');
+  };
+  img.src = url;
+  $('preview').src = url; $('preview').style.display = 'block';
+  $('captureTime').value = toLocalInput(new Date(file.lastModified));
+  updateUploadBtn();
+};
+function updateUploadBtn(){ $('uploadBtn').disabled = !(token && file && pos); }
+
+/* ---------- API ---------- */
+async function api(path, opt = {}){
+  const r = await fetch(API + path, {...opt, headers:{'Authorization':'Bearer ' + token, 'Content-Type':'application/json', ...(opt.headers||{})}});
+  const text = await r.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!r.ok) throw new Error((body.error && body.error.message) || ('HTTP ' + r.status));
+  return body;
+}
+
+$('uploadBtn').onclick = async () => {
+  const st = $('upStatus'); st.className = 'status';
+  $('uploadBtn').disabled = true;
+  try{
+    st.textContent = '1/3 アップロード準備中…';
+    const { uploadUrl } = await api('/photo:startUpload', {method:'POST', body:'{}'});
+
+    st.textContent = '2/3 写真を送信中…';
+    const up = await fetch(uploadUrl, {method:'POST', headers:{'Authorization':'Bearer ' + token, 'Content-Type':'image/jpeg'}, body:file});
+    if (!up.ok) throw new Error('写真の送信に失敗しました（HTTP ' + up.status + '）');
+
+    st.textContent = '3/3 位置情報を登録中…';
+    const photo = {
+      uploadReference: { uploadUrl },
+      pose: {
+        latLngPair: { latitude: pos.lat, longitude: pos.lng },
+        heading: +$('heading').value,
+        level: { number: +$('levelNum').value, name: $('levelName').value.trim() || ($('levelNum').value + 'F') }
+      },
+      captureTime: new Date($('captureTime').value || Date.now()).toISOString()
+    };
+    const pid = $('placeId').value.trim();
+    if (pid) photo.places = [{ placeId: pid }];
+    const res = await api('/photo', {method:'POST', body:JSON.stringify(photo)});
+    st.className = 'status ok';
+    st.textContent = '完了しました。公開審査に入りました。\nID: ' + res.photoId.id;
+    $('file').value = ''; file = null; $('preview').style.display = 'none'; $('fileInfo').textContent = '';
+    loadList();
+  }catch(e){
+    st.className = 'status err';
+    st.textContent = 'エラー：' + e.message;
+  }finally{ updateUploadBtn(); }
+};
+
+const STATUS_JA = { PUBLISHED:'公開中', REJECTED_UNKNOWN:'却下', UNSPECIFIED_MAPS_PUBLISH_STATUS:'審査中' };
+async function loadList(){
+  if (!token) return;
+  const box = $('list'); box.textContent = '読み込み中…';
+  try{
+    const j = await api('/photos?view=BASIC&pageSize=100');
+    const photos = j.photos || [];
+    placed.clearLayers();
+    if (!photos.length){ box.textContent = 'まだ投稿はありません'; return; }
+    box.innerHTML = '';
+    photos.forEach(p => {
+      const ll = p.pose && p.pose.latLngPair;
+      const lvl = p.pose && p.pose.level ? p.pose.level.name : '';
+      const status = STATUS_JA[p.mapsPublishStatus] || p.mapsPublishStatus || '審査中';
+      const el = document.createElement('div'); el.className = 'item';
+      el.innerHTML = `<img src="${p.thumbnailUrl || ''}" alt="">
+        <div>${status}${lvl ? '・' + lvl : ''}<small>${ll ? ll.latitude.toFixed(6) + ', ' + ll.longitude.toFixed(6) : ''}　閲覧 ${p.viewCount || 0}</small>
+        ${p.shareLink ? `<a href="${p.shareLink}" target="_blank" rel="noopener">Googleマップで見る</a>` : ''}</div>`;
+      const del = document.createElement('button'); del.className = 'ghost'; del.textContent = '削除';
+      del.onclick = async () => {
+        if (!confirm('この写真を削除しますか？元に戻せません。')) return;
+        try{ await api('/photo/' + encodeURIComponent(p.photoId.id), {method:'DELETE'}); loadList(); }
+        catch(e){ alert('削除に失敗しました：' + e.message); }
+      };
+      el.appendChild(del); box.appendChild(el);
+      if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).addTo(placed);
+    });
+  }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
+}
+$('refreshBtn').onclick = loadList;
+</script>
+</body>
+</html>
