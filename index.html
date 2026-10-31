@@ -108,6 +108,7 @@
     <div class="hint"><a href="https://developers.google.com/maps/documentation/places/web-service/place-id" target="_blank" rel="noopener">プレイスIDファインダー</a>で宿名を検索してコピーしてください。宿ごとに保存されます。</div>
     <label for="captureTime">撮影日時</label>
     <input type="datetime-local" id="captureTime">
+    <div id="timeHint" class="hint"></div>
     <div style="margin-top:12px"><button id="uploadBtn" disabled>アップロードして公開</button></div>
     <div id="upStatus" class="status"></div>
   </section>
@@ -206,7 +207,11 @@ $('file').onchange = () => {
   };
   img.src = url;
   $('preview').src = url; $('preview').style.display = 'block';
-  $('captureTime').value = toLocalInput(new Date(file.lastModified));
+  const m = file.name.match(/(20\d{2})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/);
+  const shot = m ? new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]) : new Date(file.lastModified);
+  $('captureTime').value = toLocalInput(shot);
+  $('timeHint').textContent = m ? 'ファイル名から撮影日時を自動で入れました。' : '⚠ ファイル名から撮影日時を読み取れませんでした。正しい日時に直してください。';
+  $('timeHint').style.color = m ? 'var(--ok)' : 'var(--warn)';
   updateUploadBtn();
 };
 function updateUploadBtn(){ $('uploadBtn').disabled = !(token && file && pos); }
