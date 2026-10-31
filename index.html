@@ -77,7 +77,7 @@
     <label for="search">場所を探す（住所や宿名）</label>
     <div style="display:flex;gap:8px"><input type="text" id="search" placeholder="例：志摩市 的矢"><button id="searchBtn" class="ghost">検索</button></div>
     <div id="map" style="margin-top:10px"></div>
-    <div class="hint">地図をタップすると撮影位置にピンが立ちます（ドラッグで微調整）。航空写真で建物の中の位置を合わせてください。</div>
+    <div class="hint">地図をタップすると撮影位置に矢印が立ち、自動で拡大します。さらに「＋」で拡大し、矢印をドラッグして部屋の中の位置まで合わせられます（拡大すると写真はぼやけますが、位置は正確に指定できます）。左下の目盛りで距離の目安がわかります。</div>
     <div class="row">
       <div>
         <label>緯度 / 経度</label>
@@ -159,9 +159,10 @@ window.addEventListener('load', () => { const t = setInterval(() => { if (window
 $('loginBtn').onclick = () => tokenClient && tokenClient.requestAccessToken({prompt: token ? '' : 'consent'});
 
 /* ---------- 地図 ---------- */
-const map = L.map('map').setView([34.36, 136.85], 16);
-const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, attribution:'&copy; OpenStreetMap'});
-const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:20, attribution:'Esri World Imagery'});
+const map = L.map('map', {maxZoom:23, zoomSnap:0.5}).setView([34.36, 136.85], 16);
+const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'});
+const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'});
+L.control.scale({imperial:false}).addTo(map);
 sat.addTo(map);
 L.control.layers({'航空写真':sat,'地図':street}).addTo(map);
 const placed = L.layerGroup().addTo(map);
@@ -176,6 +177,7 @@ function setPos(latlng){
     marker = L.marker(latlng, {draggable:true, icon:arrowIcon(+$('heading').value)}).addTo(map);
     marker.on('dragend', e => setPos(e.target.getLatLng()));
   } else marker.setLatLng(latlng);
+  if (map.getZoom() < 21) map.setView(latlng, 21);
   $('latlng').value = latlng.lat.toFixed(7) + ', ' + latlng.lng.toFixed(7);
   updateUploadBtn();
 }
@@ -187,7 +189,7 @@ $('searchBtn').onclick = async () => {
   try{
     const r = await fetch('https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ja&q=' + encodeURIComponent(q));
     const j = await r.json();
-    if (j[0]) map.setView([+j[0].lat, +j[0].lon], 19); else alert('見つかりませんでした');
+    if (j[0]) map.setView([+j[0].lat, +j[0].lon], 18); else alert('見つかりませんでした');
   }catch(e){ alert('検索に失敗しました'); }
 };
 
