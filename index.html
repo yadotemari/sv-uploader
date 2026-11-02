@@ -44,6 +44,11 @@
   .heading-arrow{width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;border-bottom:22px solid var(--accent);transform-origin:50% 70%}
   a{color:var(--accent)}
   .editbar{margin-top:12px;padding:10px 12px;border-radius:8px;background:var(--bg);border:1px dashed var(--accent);font-size:13px;white-space:pre-wrap}
+  .aimwrap{position:relative;margin-top:8px;padding-top:22px}
+  .aimwrap img{width:100%;aspect-ratio:2/1;object-fit:cover;border-radius:6px;display:block;cursor:crosshair}
+  .aimdir{position:absolute;top:0;transform:translateX(-50%);background:var(--accent);color:var(--accent-ink);font-size:12px;font-weight:bold;padding:0 6px;border-radius:4px}
+  .aimdir::after{content:"";position:absolute;left:50%;top:100%;width:2px;height:6px;background:var(--accent)}
+  .aimpick{position:absolute;top:22px;bottom:0;width:3px;margin-left:-1px;background:#ffd54a;box-shadow:0 0 3px #000;pointer-events:none}
   .tabs{display:flex;gap:8px}
   .tab{flex:1;background:var(--card);color:var(--ink);border:1px solid var(--line);white-space:normal}
   .tab.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
@@ -196,6 +201,17 @@
         <label for="heading">向き（写真の中心が向く方角）：<b id="headingVal">0</b>°</label>
         <input type="range" id="heading" min="0" max="359" value="0">
         <div class="hint">0=北 / 90=東 / 180=南 / 270=西。Insta360で撮った時にレンズ正面が向いていた方角です。</div>
+        <button id="aimBtn" class="ghost" style="margin-top:8px">正面がわからないとき：写真の目印で向きを合わせる</button>
+      </div>
+    </div>
+    <div id="aimBox" class="labelbox" style="display:none">
+      <b>写真の目印で向きを合わせる</b>
+      <div id="aimMsg" class="editbar" style="margin-top:8px"></div>
+      <div class="aimwrap"><img id="aimImg" alt=""><div id="aimMarks"></div><div id="aimPick" class="aimpick" style="display:none"></div></div>
+      <div class="hint">写真の上の「北・東・南・西」の文字が、今の向きの設定で写真のどの方向にあたるかを示しています。地図と見比べて合っていれば完了です。</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button id="aimRestart" class="ghost">やり直す</button>
+        <button id="aimClose" class="ghost">閉じる</button>
       </div>
     </div>
     <div class="row">
@@ -320,8 +336,58 @@ function setPos(latlng){
   $('latlng').value = latlng.lat.toFixed(7) + ', ' + latlng.lng.toFixed(7);
   updateUploadBtn();
 }
-map.on('click', e => setPos(e.latlng));
-$('heading').oninput = () => { $('headingVal').textContent = $('heading').value; if (marker) marker.setIcon(arrowIcon(+$('heading').value)); };
+map.on('click', e => { if (aimStep === 2) return aimMapClick(e.latlng); setPos(e.latlng); });
+$('heading').oninput = () => { $('headingVal').textContent = $('heading').value; if (marker) marker.setIcon(arrowIcon(+$('heading').value)); drawAimMarks(); };
+
+/* ---------- 写真の目印で向きを合わせる ---------- */
+let aimStep = 0, aimYaw = 0, aimLine = null;
+function aimSrc(){
+  if (file && $('preview').src) return $('preview').src;
+  if (editing && editing.thumbnailUrl) return editing.thumbnailUrl;
+  return '';
+}
+function aimMsg(t){ $('aimMsg').textContent = t; }
+function openAim(){
+  if (!pos){ alert('先に地図で撮影位置（赤い矢印）を置いてください'); return; }
+  const src = aimSrc();
+  if (!src){ alert('先に①で写真を選んでください（修正中の写真なら、そのまま開けます）'); return; }
+  $('aimImg').src = src;
+  $('aimBox').style.display = 'block';
+  aimStep = 1; $('aimPick').style.display = 'none';
+  if (aimLine){ map.removeLayer(aimLine); aimLine = null; }
+  aimMsg('手順1：写真の中で、地図でも場所がわかる目印（窓・入口のドア・廊下の奥など）をクリックしてください。');
+  drawAimMarks();
+  $('aimBox').scrollIntoView({behavior:'smooth', block:'center'});
+}
+function drawAimMarks(){
+  const box = $('aimMarks'); if (!box || $('aimBox').style.display === 'none') return;
+  const h = +$('heading').value;
+  box.innerHTML = [['北',0],['東',90],['南',180],['西',270]].map(([n, d]) => {
+    const u = 0.5 + ((((d - h) % 360) + 540) % 360 - 180) / 360;
+    return `<span class="aimdir" style="left:${(u * 100).toFixed(2)}%">${n}</span>`;
+  }).join('');
+}
+$('aimImg').addEventListener('click', e => {
+  if (aimStep < 1) return;
+  const r = $('aimImg').getBoundingClientRect(), u = (e.clientX - r.left) / r.width;
+  aimYaw = (u - 0.5) * 360;
+  $('aimPick').style.left = (u * 100) + '%'; $('aimPick').style.display = 'block';
+  aimStep = 2;
+  aimMsg('手順2：今クリックした目印が、地図（航空写真）のどこにあるかをクリックしてください。上の地図に戻ってクリックします。');
+  document.getElementById('map').scrollIntoView({behavior:'smooth', block:'center'});
+});
+function aimMapClick(ll){
+  const h = Math.round(((bearing(pos, ll) - aimYaw) % 360 + 360) % 360);
+  $('heading').value = h; $('heading').oninput();
+  if (aimLine) map.removeLayer(aimLine);
+  aimLine = L.polyline([pos, ll], {color:'#ffd54a', weight:3, dashArray:'6 4'}).addTo(map);
+  aimStep = 3;
+  aimMsg(`向きを ${h}° に合わせました。写真の上の「北・東・南・西」が実際の方角と合っているか確認してください。ずれていたら「やり直す」。修正中の写真なら、このあと「位置・向きだけ保存」を押します。`);
+  $('aimBox').scrollIntoView({behavior:'smooth', block:'center'});
+}
+$('aimBtn').onclick = openAim;
+$('aimRestart').onclick = openAim;
+$('aimClose').onclick = () => { $('aimBox').style.display = 'none'; aimStep = 0; if (aimLine){ map.removeLayer(aimLine); aimLine = null; } };
 
 $('searchBtn').onclick = async () => {
   const q = $('search').value.trim(); if (!q) return;
