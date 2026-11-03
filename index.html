@@ -6,6 +6,7 @@
 <title>館内360アップローダー</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
   :root{
@@ -72,9 +73,33 @@
   @media (max-width:600px){ .lblgrid{grid-template-columns:1fr} }
   .item{grid-template-columns:22px 96px 1fr auto !important}
   .item .linkChk{width:18px;height:18px}
+  .item{grid-template-columns:34px 96px 1fr auto !important}
+  .chkwrap{display:flex;flex-direction:column;align-items:center;gap:2px;cursor:pointer}
+  .ord{min-height:18px;font-size:13px;font-weight:bold;color:var(--accent)}
   .item .btns{display:flex;flex-direction:column;gap:6px}
   .item .btns button{padding:6px 12px;font-size:13px}
-  @media (max-width:600px){ .row{grid-template-columns:1fr} #map{height:320px} }
+  .cklist{display:grid;grid-template-columns:1fr auto auto;gap:4px 12px;align-items:center;margin-top:8px;font-size:14px}
+  .cklist .h{font-size:12px;color:var(--sub)}
+  .cklist input[type=checkbox]{width:18px;height:18px}
+  .cklist input[type=text]{padding:6px 8px;font-size:14px}
+  .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:4px}
+  .bar i{display:block;height:100%;background:var(--ok)}
+  .share{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:start;margin-top:10px}
+  .share canvas{width:150px;height:150px;background:#fff;border-radius:6px;border:1px solid var(--line)}
+  .share input{font-size:13px !important}
+  .rep{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}
+  .rep th,.rep td{border-bottom:1px solid var(--line);padding:6px;text-align:left}
+  .rep td.n,.rep th.n{text-align:right;white-space:nowrap}
+  .plus{color:var(--ok);font-weight:bold}
+  .planhandle{width:26px;height:26px;border-radius:50%;background:#ffd54a;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,.6);display:grid;place-items:center;font-size:14px;color:#5a4300;font-weight:bold;cursor:move}
+  .strip figure{cursor:pointer}
+  .strip figure.sel img{border-color:#ffd54a;box-shadow:0 0 0 2px #ffd54a}
+  .bnum{background:var(--accent);color:var(--accent-ink);border-radius:50%;width:24px;height:24px;display:grid;place-items:center;font-size:11px;font-weight:bold;border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,.5);position:relative}
+  .bnum.sel{background:#ffd54a;color:#5a4300}
+  .bnum.up{background:var(--ok)}
+  .bnum i{position:absolute;left:50%;top:50%;width:0;height:0;margin-left:-5px;margin-top:-23px;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:10px solid var(--accent);transform-origin:5px 23px}
+  .bnum.sel i{border-bottom-color:#c89b00} .bnum.up i{border-bottom-color:var(--ok)}
+  @media (max-width:600px){ .row{grid-template-columns:1fr} #map{height:320px} .share{grid-template-columns:1fr} }
 </style>
 </head>
 <body>
@@ -120,10 +145,22 @@
       <div class="hint">登録内容はこのパソコンのブラウザに保存されます。別のパソコンでは登録し直してください。</div>
       <div id="innMsg" class="status"></div>
     </details>
+    <details id="ckBox" style="margin-top:10px">
+      <summary>撮影チェックリスト（基本の10か所）<span id="ckSum" class="hint"></span></summary>
+      <div class="hint">選んでいるお宿さまごとに保存されます。場所の名前は書き換えられます（例：「客室・窓際／縁側」→「客室・露天風呂」）。女湯は撮影しません。</div>
+      <div id="ckList" class="cklist"></div>
+      <div class="bar"><i id="ckBar" style="width:0"></i></div>
+    </details>
+    <details id="shareBox" style="margin-top:10px">
+      <summary>共有リンク・QRコード</summary>
+      <div class="hint">お宿さまへの報告や、館内掲示・チラシ・ホームページ用です。QRコードは画像として保存できます。</div>
+      <div id="shareArea"></div>
+    </details>
   </section>
 
   <div class="tabs">
     <button id="tabIndoor" class="tab on">館内（1枚ずつ）</button>
+    <button id="tabBatch" class="tab">館内（まとめて）</button>
     <button id="tabRoad" class="tab">道路・道中（まとめて）</button>
   </div>
 
@@ -163,6 +200,8 @@
           <input type="text" id="rLblInn" placeholder="例：いかだ荘山上">
           <label for="rLblPlace">場所</label>
           <input type="text" id="rLblPlace" value="宿までの道">
+          <label class="check"><input type="checkbox" class="enOn"> 英語も入れる</label>
+          <input type="text" id="rLblEn" placeholder="例：Road to the Inn">
         </div>
         <div class="lblprev"><canvas id="rLblPrev" width="320" height="320"></canvas><div class="hint">足元を見たときの見え方</div></div>
       </div>
@@ -174,6 +213,66 @@
     </div>
     <div class="hint">公開直後はGoogle側の処理が終わっておらず、つなぐのに失敗することがあります。その場合は、数時間〜1日おいてから「写真同士をつなぎ直す」を押してください（前回まとめて上げた写真が対象です）。</div>
     <div id="roadStatus" class="status"></div>
+  </section>
+  </div>
+
+  <div id="batchMode" style="display:none">
+  <section class="card">
+    <h2><span class="num">1</span>館内の360度写真をまとめて選ぶ</h2>
+    <input type="file" id="bFiles" accept="image/jpeg" multiple>
+    <div class="hint">1部屋・1フロア分など、まとめて選べます。ファイル名の順（＝撮影順）に並びます。下の写真をクリックすると、その写真を選べます（黄色の枠）。</div>
+    <div id="bStrip" class="strip"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">2</span>1枚ずつ、位置・向き・場所名を決める</h2>
+    <div id="bNow" class="editbar" style="margin-top:0">写真を選ぶと、ここに「今選んでいる写真」が出ます。</div>
+    <div id="bMap" style="margin-top:10px;height:440px;border-radius:8px;border:1px solid var(--line)"></div>
+    <div class="hint">地図をクリックすると、黄色の写真がそこに置かれ、次の写真に進みます。番号の丸はドラッグで動かせます。三角が向き（写真の正面の方角）です。</div>
+    <details class="labelbox planbox">
+      <summary>見取り図を地図に重ねる</summary>
+      <div class="planui"></div>
+    </details>
+    <div class="row">
+      <div>
+        <label for="bHeading">向き（写真の中心が向く方角）：<b id="bHeadingVal">0</b>°</label>
+        <input type="range" id="bHeading" min="0" max="359" value="0">
+        <button id="bHeadAll" class="ghost" style="margin-top:6px">この向きを全部の写真に使う</button>
+        <div class="hint">正面がわからない写真は、公開後に④の「修正」→「写真の目印で向きを合わせる」で直せます。</div>
+      </div>
+      <div>
+        <label for="bPlace">場所（ラベルの文字）</label>
+        <input type="text" id="bPlace" placeholder="例：211号室">
+        <label for="bEn">英語</label>
+        <input type="text" id="bEn" placeholder="例：Room 211">
+        <div class="row">
+          <div><label for="bLevelNum">階数</label><input type="number" id="bLevelNum" value="1" step="1"></div>
+          <div><label for="bLevelName">表示名</label><input type="text" id="bLevelName" value="1F" maxlength="3"></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <button id="bPrev" class="ghost">← 前の写真</button>
+      <button id="bNext" class="ghost">次の写真 →</button>
+      <button id="bUnplace" class="ghost">この写真の位置を消す</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">3</span>まとめて宿とひもづけて公開</h2>
+    <div class="labelbox" style="margin-top:0">
+      <label class="check" style="margin-top:0"><input type="checkbox" id="bLblOn" checked> 足元に場所のラベルを入れる（場所名は写真ごと）</label>
+      <label class="check"><input type="checkbox" class="enOn"> 英語も入れる</label>
+      <div class="lblgrid">
+        <div class="hint">宿名は「★お宿さまを選ぶ」で選んだ宿名が入ります。右は今選んでいる写真のラベルです。</div>
+        <div class="lblprev"><canvas id="bLblPrev" width="320" height="320"></canvas><div class="hint">足元を見たときの見え方</div></div>
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" id="bChain" checked> 並び順のとおりに写真同士をつなぐ（玄関 → 廊下 → 客室 のように撮った順）</label>
+    <div class="hint">公開直後はつなげないことがあります。そのときは公開後に④の「チェックした順番につなぐ」でつなぎます。</div>
+    <div class="target" data-target="batch"></div>
+    <div style="margin-top:12px"><button id="bUploadBtn" disabled>まとめてアップロードして公開</button></div>
+    <div id="bStatus" class="status"></div>
   </section>
   </div>
 
@@ -214,6 +313,10 @@
         <button id="aimClose" class="ghost">閉じる</button>
       </div>
     </div>
+    <details class="labelbox planbox">
+      <summary>見取り図を地図に重ねる（館内の位置合わせが楽になります）</summary>
+      <div class="planui"></div>
+    </details>
     <div class="row">
       <div>
         <label for="levelNum">階数（数字）</label>
@@ -240,7 +343,9 @@
           <input type="text" id="lblInn" placeholder="例：いかだ荘山上">
           <label for="lblPlace">場所（自由に入力）</label>
           <input type="text" id="lblPlace" placeholder="例：211号室／フロント・ロビー／大浴場（男湯）">
-          <div class="hint">写真の真下（足元・三脚が写る部分）に、白い丸のラベルとして入ります。Googleのルール（文字は写真の上か下の一方だけ）に沿った入れ方です。</div>
+          <label class="check"><input type="checkbox" class="enOn"> 英語も入れる（海外のお客さま向け）</label>
+          <input type="text" id="lblEn" placeholder="例：Room 211">
+          <div class="hint">英語は「場所」から自動で入ります。違うときや空欄のときは書き換えてください。<br>写真の真下（足元・三脚が写る部分）に、白い丸のラベルとして入ります。Googleのルール（文字は写真の上か下の一方だけ）に沿った入れ方です。</div>
         </div>
         <div class="lblprev"><canvas id="lblPrev" width="320" height="320"></canvas><div class="hint">足元を見たときの見え方</div></div>
       </div>
@@ -261,18 +366,37 @@
 
   <section class="card">
     <h2><span class="num">4</span>投稿済みの写真</h2>
-    <button id="refreshBtn" class="ghost" disabled>一覧を更新</button>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <button id="refreshBtn" class="ghost" disabled>一覧を更新</button>
+      <label class="check" style="margin:0"><input type="checkbox" id="onlyInn" checked> 選んでいるお宿さまの写真だけ表示</label>
+      <span id="listCount" class="hint"></span>
+    </div>
     <div class="hint">公開まで数時間〜数日かかることがあります。Google側で位置や向きが補正される場合があります。<br>「修正」を押すと、位置・向き・階数を直せます。撮影日時も直したいときは、修正中に①で元の写真を選び直すと、正しい日時で差し替えます。</div>
     <div class="labelbox" id="linkBox">
       <b>写真同士をつなぐ（館内の写真を建物の中に並べて見せる）</b>
-      <div class="hint">同じ宿の写真にチェックを入れて押すと、近い写真同士を自動でつなぎます。つながった写真は、写真の中の矢印で行き来でき、Googleマップでもそれぞれの位置に表示されやすくなります（最終的な表示はGoogleが決めます）。写真を追加したら、新しい写真と近くの写真にチェックを入れて、もう一度押してください。</div>
+      <div class="hint">つながった写真は、写真の中の矢印で行き来できます。<b>おすすめは「順番につなぐ」</b>：歩いて移動する順（例：玄関 → 廊下 → 客室入口 → 客室中心 → 窓際）にチェックを入れて押すと、その順番どおりに1本道でつながります。チェックの横に出る番号が順番です。<br>
+      分かれ道（廊下から別の部屋へ など）は、分かれ目の写真から別の部屋までを、もう一度「順番につなぐ」で足します。壁の向こうへ矢印が出るなど変なつながりは、「つながりを外す」でいったん外してからつなぎ直します。</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-        <button id="linkBtn" disabled>チェックした写真同士をつなぐ</button>
+        <button id="linkChain" disabled>チェックした順番につなぐ</button>
+        <button id="unlinkBtn" class="ghost" disabled>チェックした写真のつながりを外す</button>
+        <button id="linkBtn" class="ghost" disabled>近い写真同士を自動でつなぐ</button>
         <button id="linkAll" class="ghost" disabled>全部チェック</button>
+        <button id="linkNone" class="ghost" disabled>チェックを全部外す</button>
       </div>
       <div id="linkStatus" class="status"></div>
     </div>
     <div id="list" class="list" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">5</span>閲覧数レポート</h2>
+    <div class="hint">④の一覧を読み込むたびに、その日の閲覧数を記録します。前回の記録や約1か月前の記録と比べて、どれだけ見られたかがわかります。Googleの閲覧数は反映が遅れることがあります。</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button id="repBtn" disabled>選んでいるお宿さまのレポート</button>
+      <button id="repAllBtn" class="ghost" disabled>全部のお宿さまの一覧</button>
+      <button id="repPrint" class="ghost" disabled>印刷・PDF用に開く</button>
+    </div>
+    <div id="repArea"></div>
   </section>
 </main>
 
@@ -509,6 +633,8 @@ $('uploadBtn').onclick = async () => {
     const res = await api('/photo', {method:'POST', body:JSON.stringify(photo)});
     let msg = '完了しました。公開審査に入りました。\nID: ' + res.photoId.id;
     { const pend = loadPendLvl(); pend[res.photoId.id] = photo.pose.level; savePendLvl(pend); }
+    setPhotoName(res.photoId.id, $('lblPlace').value.trim());
+    if (editing && photoName(editing.photoId.id) && !$('lblPlace').value.trim()) setPhotoName(res.photoId.id, photoName(editing.photoId.id));
     if (editing){
       try{ await api('/photo/' + encodeURIComponent(editing.photoId.id), {method:'DELETE'}); msg = '差し替えました。新しい写真が公開審査に入り、古い写真は削除しました。\nID: ' + res.photoId.id; }
       catch(e){ msg += '\n⚠ 古い写真の削除に失敗しました。④の一覧から手動で削除してください。'; }
@@ -533,22 +659,26 @@ async function loadList(){
     const photos = j.photos || [];
     if (await fixPendingLevels(photos)) return loadList();
     placed.clearLayers();
-    if (!photos.length){ box.textContent = 'まだ投稿はありません'; return; }
+    allPhotos = photos; saveViewSnap(photos); afterListLoaded();
+    const c = curInn(), only = $('onlyInn').checked && c;
+    const shown = only ? photos.filter(p => photoInn(p) === c) : photos;
+    $('listCount').textContent = only ? `「${c.name}」の写真 ${shown.length}枚（全部で${photos.length}枚）` : `全部で${photos.length}枚`;
+    if (!shown.length){ box.textContent = photos.length ? 'このお宿さまの写真はまだありません（チェックを外すと全部の写真が出ます）' : 'まだ投稿はありません'; listPhotos = []; updateLinkBtn(); return; }
     box.innerHTML = '';
-    listPhotos = photos;
+    listPhotos = shown;
     const byId = Object.fromEntries(photos.map(p => [p.photoId.id, p]));
-    photos.forEach(p => (p.connections || []).forEach(c => {
+    shown.forEach(p => (p.connections || []).forEach(c => {
       const q = byId[c.target && c.target.id];
       if (q && p.pose && q.pose && p.photoId.id < q.photoId.id)
         L.polyline([[p.pose.latLngPair.latitude, p.pose.latLngPair.longitude], [q.pose.latLngPair.latitude, q.pose.latLngPair.longitude]], {color:'#4f7a5a', weight:2, dashArray:'4 3'}).addTo(placed);
     }));
-    photos.forEach(p => {
+    shown.forEach(p => {
       const ll = p.pose && p.pose.latLngPair;
       const lvl = p.pose && p.pose.level ? p.pose.level.name : '';
       const status = STATUS_JA[p.mapsPublishStatus] || p.mapsPublishStatus || '審査中';
       const el = document.createElement('div'); el.className = 'item';
-      el.innerHTML = `<input type="checkbox" class="linkChk" value="${p.photoId.id}" aria-label="つなぐ写真に選ぶ"><img src="${p.thumbnailUrl || ''}" alt="">
-        <div>${status}${lvl ? '・' + lvl : ''}<small>${ll ? ll.latitude.toFixed(6) + ', ' + ll.longitude.toFixed(6) : ''}　閲覧 ${p.viewCount || 0}　つながり ${(p.connections || []).length}</small>
+      el.innerHTML = `<label class="chkwrap"><input type="checkbox" class="linkChk" value="${p.photoId.id}" aria-label="つなぐ写真に選ぶ"><span class="ord"></span></label><img src="${p.thumbnailUrl || ''}" alt="">
+        <div>${photoName(p.photoId.id) ? '<b>' + esc(photoName(p.photoId.id)) + '</b>　' : ''}${status}${lvl ? '・' + lvl : ''}<small>${ll ? ll.latitude.toFixed(6) + ', ' + ll.longitude.toFixed(6) : ''}　閲覧 ${p.viewCount || 0}　つながり ${(p.connections || []).length}</small>
         ${p.shareLink ? `<a href="${p.shareLink}" target="_blank" rel="noopener">Googleマップで見る</a>` : ''}</div>`;
       const del = document.createElement('button'); del.className = 'ghost'; del.textContent = '削除';
       del.onclick = async () => {
@@ -558,16 +688,21 @@ async function loadList(){
       };
       const edit = document.createElement('button'); edit.textContent = '修正';
       edit.onclick = () => startEdit(p);
+      const nm = document.createElement('button'); nm.className = 'ghost'; nm.textContent = '場所名';
+      nm.title = 'レポートや共有リンクに出る場所名をつける（このパソコンに保存）';
+      nm.onclick = () => { const v = prompt('この写真の場所名（例：211号室・窓際）', photoName(p.photoId.id)); if (v != null){ const o = jget('svNames', {}); if (v.trim()) o[p.photoId.id] = v.trim(); else delete o[p.photoId.id]; jset('svNames', o); loadList(); } };
       const btns = document.createElement('div'); btns.className = 'btns';
-      btns.appendChild(edit); btns.appendChild(del);
+      btns.appendChild(edit); btns.appendChild(nm); btns.appendChild(del);
       el.appendChild(btns); box.appendChild(el);
-      if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).addTo(placed);
+      if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).bindTooltip(photoName(p.photoId.id) || '').addTo(placed);
     });
     box.querySelectorAll('.linkChk').forEach(c => c.addEventListener('change', updateLinkBtn));
     updateLinkBtn();
   }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
 }
 $('refreshBtn').onclick = loadList;
+$('onlyInn').checked = store.get('svOnlyInn') !== '0';
+$('onlyInn').onchange = () => { store.set('svOnlyInn', $('onlyInn').checked ? '1' : '0'); loadList(); };
 
 /* ---------- 公開後に階数を自動で入れ直す ---------- */
 function loadPendLvl(){ try{ return JSON.parse(store.get('svPendLvl') || '{}'); }catch(e){ return {}; } }
@@ -591,15 +726,76 @@ async function fixPendingLevels(photos){
 }
 
 /* ---------- 館内の写真同士をつなぐ ---------- */
-let listPhotos = [];
-function checkedIds(){ return [...document.querySelectorAll('.linkChk:checked')].map(c => c.value); }
+let listPhotos = [], checkOrder = [];
+function checkedIds(){ return checkOrder.filter(id => { const c = document.querySelector(`.linkChk[value="${CSS.escape(id)}"]`); return c && c.checked; }); }
 function updateLinkBtn(){
+  // チェックの順番を記録
+  document.querySelectorAll('.linkChk').forEach(c => {
+    const i = checkOrder.indexOf(c.value);
+    if (c.checked && i < 0) checkOrder.push(c.value);
+    if (!c.checked && i >= 0) checkOrder.splice(i, 1);
+  });
+  document.querySelectorAll('.linkChk').forEach(c => {
+    const b = c.parentElement.querySelector('.ord'); const i = checkOrder.indexOf(c.value);
+    if (b) b.textContent = i >= 0 ? (i + 1) : '';
+  });
   const n = checkedIds().length;
+  $('linkChain').disabled = !(token && n >= 2);
+  $('linkChain').textContent = n >= 2 ? `チェックした順番に${n}枚をつなぐ` : 'チェックした順番につなぐ（2枚以上）';
   $('linkBtn').disabled = !(token && n >= 2);
-  $('linkBtn').textContent = n >= 2 ? `チェックした${n}枚をつなぐ` : 'チェックした写真同士をつなぐ（2枚以上）';
+  $('unlinkBtn').disabled = !(token && n >= 1);
   $('linkAll').disabled = !(token && listPhotos.length >= 2);
+  $('linkNone').disabled = !(n >= 1);
 }
 $('linkAll').onclick = () => { document.querySelectorAll('.linkChk').forEach(c => c.checked = true); updateLinkBtn(); };
+$('linkNone').onclick = () => { document.querySelectorAll('.linkChk').forEach(c => c.checked = false); updateLinkBtn(); };
+async function putConnections(links, label){
+  const st = $('linkStatus'); st.className = 'status';
+  ['linkChain', 'linkBtn', 'unlinkBtn'].forEach(id => $(id).disabled = true);
+  let ok = 0, ng = 0, i = 0; const n = Object.keys(links).length;
+  for (const [id, set] of Object.entries(links)){
+    st.textContent = `${label}… ${++i} / ${n}`;
+    try{
+      await api('/photo/' + encodeURIComponent(id) + '?updateMask=connections',
+        {method:'PUT', body:JSON.stringify({photoId:{id}, connections:[...set].map(t => ({target:{id:t}}))})});
+      ok++;
+    }catch(e){ ng++; }
+  }
+  st.className = 'status ' + (ng ? 'err' : 'ok');
+  st.textContent = ng ? `${ok}枚は完了しました。${ng}枚はできませんでした（公開前の写真はつなげないことがあります。公開後にもう一度押してください）。` : `${ok}枚の${label}が完了しました。Googleマップへの反映には時間がかかります。`;
+  checkOrder = [];
+  loadList();
+}
+function currentLinks(){ return Object.fromEntries(listPhotos.map(p => [p.photoId.id, new Set((p.connections || []).map(c => c.target.id))])); }
+$('linkChain').onclick = async () => {
+  const ids = checkedIds();
+  const sel = ids.map(id => listPhotos.find(p => p.photoId.id === id)).filter(p => p && p.pose && p.pose.latLngPair);
+  if (sel.length < 2){ alert('位置のわかる写真を2枚以上チェックしてください'); return; }
+  for (let i = 1; i < sel.length; i++){
+    const d = distM(sel[i - 1].pose.latLngPair, sel[i].pose.latLngPair);
+    if (d > 30 && !confirm(`${i}番と${i + 1}番の写真が${Math.round(d)}m離れています。順番は合っていますか？このままつなぎますか？`)) return;
+  }
+  const all = currentLinks(), links = {};
+  sel.forEach(p => links[p.photoId.id] = all[p.photoId.id]);
+  for (let i = 1; i < sel.length; i++){
+    const a = sel[i - 1].photoId.id, b = sel[i].photoId.id;
+    links[a].add(b); links[b].add(a);
+  }
+  await putConnections(links, '順番どおりのつなぎ');
+};
+$('unlinkBtn').onclick = async () => {
+  const ids = checkedIds(); if (!ids.length) return;
+  if (!confirm(`チェックした${ids.length}枚のつながりを全部外します。ほかの写真から、この写真へのつながりも外します。よろしいですか？`)) return;
+  const all = currentLinks(), links = {};
+  ids.forEach(id => links[id] = new Set());
+  listPhotos.forEach(p => {
+    const id = p.photoId.id; if (ids.includes(id)) return;
+    const s = all[id]; let changed = false;
+    ids.forEach(x => { if (s.delete(x)) changed = true; });
+    if (changed) links[id] = s;
+  });
+  await putConnections(links, 'つながりの解除');
+};
 function distM(a, b){
   const R = 6371000, toR = Math.PI / 180;
   const dLat = (b.latitude - a.latitude) * toR, dLng = (b.longitude - a.longitude) * toR;
@@ -640,10 +836,13 @@ let roadMap = null, roadLine = null, road = [];
 function setMode(m){
   $('tabIndoor').classList.toggle('on', m === 'indoor');
   $('tabRoad').classList.toggle('on', m === 'road');
+  $('tabBatch').classList.toggle('on', m === 'batch');
   $('indoorMode').style.display = m === 'indoor' ? '' : 'none';
   $('roadMode').style.display = m === 'road' ? '' : 'none';
-  if (m === 'road') initRoadMap(); else map.invalidateSize();
+  $('batchMode').style.display = m === 'batch' ? '' : 'none';
+  if (m === 'road') initRoadMap(); else if (m === 'batch') initBatchMap(); else map.invalidateSize();
 }
+$('tabBatch').onclick = () => setMode('batch');
 $('tabIndoor').onclick = () => setMode('indoor');
 $('tabRoad').onclick = () => setMode('road');
 
@@ -804,7 +1003,7 @@ $('roadUploadBtn').onclick = async () => {
         pose:{ latLngPair:{latitude:r.pos.lat, longitude:r.pos.lng}, heading:roadHeading(i) },
         captureTime:r.time.toISOString()
       })});
-      r.uploaded = res.photoId.id; r.error = null;
+      r.uploaded = res.photoId.id; r.error = null; setPhotoName(r.uploaded, ($('rLblPlace').value.trim() || '道中') + ' ' + (i + 1));
       r.marker.setIcon(numIcon(i + 1, true)); r.marker.dragging.disable();
     }catch(e){ r.error = e.message; ng++; }
     renderRoad();
@@ -823,7 +1022,12 @@ $('roadUploadBtn').onclick = async () => {
 /* ---------- 足元ラベル ---------- */
 const LBL_ANGLE = 20;            // 真下から何度までをラベルにするか（写真の下 約11%）
 const LBL_FONT = '"Hiragino Sans","Noto Sans JP","Noto Sans CJK JP","Yu Gothic UI","Meiryo",sans-serif';
-function labelText(innId, placeId){ return [$(innId).value.trim(), $(placeId).value.trim()]; }
+const EN_OF = {lblPlace:'lblEn', rLblPlace:'rLblEn'};
+function enOn(){ return store.get('svLblEn') === '1'; }
+function labelText(innId, placeId){
+  const en = EN_OF[placeId] && enOn() ? $(EN_OF[placeId]).value.trim() : '';
+  return [$(innId).value.trim(), $(placeId).value.trim(), en];
+}
 function fitLines(ctx, text, maxW, maxSize, minSize, weight){
   for (let s = maxSize; s >= minSize; s -= 4){
     ctx.font = `${weight} ${s}px ${LBL_FONT}`;
@@ -846,7 +1050,7 @@ function fitLines(ctx, text, maxW, maxSize, minSize, weight){
   }
   return {size:30, lines};
 }
-function drawPatch(size, inn, place){
+function drawPatch(size, inn, place, en){
   const c = document.createElement('canvas'); c.width = c.height = size;
   const g = c.getContext('2d'), cx = size / 2, R = size / 2 - 2, k = size / 1000;
   g.beginPath(); g.arc(cx, cx, R, 0, Math.PI * 2); g.fillStyle = 'rgba(255,255,255,0.97)'; g.fill();
@@ -855,11 +1059,13 @@ function drawPatch(size, inn, place){
   g.textAlign = 'center'; g.textBaseline = 'middle';
   const blocks = [];
   if (inn){ const f = fitLines(g, inn, 640 * k, 84 * k, 56 * k, 'bold'); blocks.push({...f, color:'#8a4b40', weight:'bold'}); }
-  if (place){ const f = fitLines(g, place, 760 * k, 150 * k, 90 * k, '900'); blocks.push({...f, color:'#2b2320', weight:'900'}); }
+  if (place){ const f = fitLines(g, place, 760 * k, (en ? 128 : 150) * k, (en ? 80 : 90) * k, '900'); blocks.push({...f, color:'#2b2320', weight:'900'}); }
+  if (en){ const f = fitLines(g, en, (place ? 700 : 760) * k, 72 * k, 44 * k, 'bold'); blocks.push({...f, color:'#6b5a52', weight:'bold', en:true}); }
   const gap = 34 * k, sep = (inn && place) ? 30 * k : 0;
-  const total = blocks.reduce((a, b) => a + b.lines.length * b.size * 1.18, 0) + sep;
+  const total = blocks.reduce((a, b) => a + b.lines.length * b.size * 1.18 + (b.en ? 12 * k : 0), 0) + sep;
   let y = cx - total / 2;
   blocks.forEach((b, bi) => {
+    if (b.en) y += 12 * k;
     g.font = `${b.weight} ${b.size}px ${LBL_FONT}`; g.fillStyle = b.color;
     b.lines.forEach(l => { g.fillText(l, cx, y + b.size * 0.59); y += b.size * 1.18; });
     if (bi === 0 && sep){
@@ -872,9 +1078,9 @@ function drawPatch(size, inn, place){
 function renderPreview(canvasId, innId, placeId, onId){
   const cv = $(canvasId), g = cv.getContext('2d');
   g.clearRect(0, 0, cv.width, cv.height);
-  const [inn, place] = labelText(innId, placeId);
+  const [inn, place, en] = labelText(innId, placeId);
   if (!$(onId).checked || !(inn || place)) return;
-  g.drawImage(drawPatch(cv.width, inn, place), 0, 0);
+  g.drawImage(drawPatch(cv.width, inn, place, en), 0, 0);
 }
 function addXmp(buf, w, h){
   const xmp = `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?><x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:GPano="http://ns.google.com/photos/1.0/panorama/" GPano:ProjectionType="equirectangular" GPano:UsePanoramaViewer="True" GPano:CroppedAreaImageWidthPixels="${w}" GPano:CroppedAreaImageHeightPixels="${h}" GPano:FullPanoWidthPixels="${w}" GPano:FullPanoHeightPixels="${h}" GPano:CroppedAreaLeftPixels="0" GPano:CroppedAreaTopPixels="0"/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>`;
@@ -886,12 +1092,12 @@ function addXmp(buf, w, h){
   out.set(src.subarray(0, 2)); out.set(seg, 2); out.set(src.subarray(2), 2 + seg.length);
   return new Blob([out], {type:'image/jpeg'});
 }
-async function labelImage(file, inn, place){
+async function labelImage(file, inn, place, en){
   const bmp = await createImageBitmap(file);
   const W = bmp.width, H = bmp.height;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d'); g.drawImage(bmp, 0, 0); bmp.close && bmp.close();
-  const PS = 1600, patch = drawPatch(PS, inn, place).getContext('2d').getImageData(0, 0, PS, PS).data;
+  const PS = 1600, patch = drawPatch(PS, inn, place, en).getContext('2d').getImageData(0, 0, PS, PS).data;
   const a = LBL_ANGLE * Math.PI / 180, Rp = Math.tan(a), y0 = Math.floor(H * (1 - LBL_ANGLE / 180)) - 2;
   const band = g.getImageData(0, y0, W, H - y0), d = band.data, half = PS / 2;
   for (let y = y0; y < H; y++){
@@ -964,8 +1170,11 @@ function updateTarget(){
   const c = inns.find(x => x.placeId && x.placeId === pid);
   const pidText = $('noPlace').checked ? '宿とひもづけない' : (pid ? (c ? c.name : 'プレイスID ' + pid) : '（プレイスID未入力）');
   document.querySelectorAll('[data-target]').forEach(el => {
-    el.textContent = el.dataset.target === 'indoor'
+    const t = el.dataset.target;
+    el.textContent = t === 'indoor'
       ? `投稿先のお宿さま：${pidText}　／　ラベルの宿名：${$('lblOn').checked ? (inn || '（なし）') : '入れない'}`
+      : t === 'batch'
+      ? `投稿先のお宿さま：${pid ? (c ? c.name : 'プレイスID ' + pid) : '（プレイスID未入力：★でお宿さまを選んでください）'}　／　ラベルの宿名：${$('bLblOn').checked ? (inn || '（なし）') : '入れない'}`
       : `ラベルの宿名：${$('rLblOn').checked ? (inn || '（なし）') : '入れない'}`;
   });
 }
@@ -978,8 +1187,9 @@ function applyInn(c){
   if (c.lat != null){
     map.setView([c.lat, c.lng], c.zoom || 18);
     if (roadMap) roadMap.setView([c.lat, c.lng], c.zoom || 18);
+    if (bMap) bMap.setView([c.lat, c.lng], c.zoom || 18);
   }
-  updateTarget();
+  updateTarget(); innChanged();
 }
 $('innSel').onchange = () => {
   store.set('svInnCur', $('innSel').value);
@@ -989,7 +1199,7 @@ $('innSel').onchange = () => {
 function innFromForm(id){
   const name = $('innName').value.trim(), pid = $('innPid').value.trim();
   if (!name){ alert('宿名を入力してください'); return null; }
-  const m = (roadMap && $('roadMode').style.display !== 'none') ? roadMap : map;
+  const m = (roadMap && $('roadMode').style.display !== 'none') ? roadMap : (bMap && $('batchMode').style.display !== 'none') ? bMap : map;
   const c = m.getCenter();
   return {id, name, placeId:pid, lat:c.lat, lng:c.lng, zoom:m.getZoom()};
 }
@@ -1012,13 +1222,529 @@ $('innDel').onclick = () => {
   const c = curInn(); if (!c){ alert('削除するお宿さまを一覧から選んでください'); return; }
   if (!confirm(`「${c.name}」を一覧から削除しますか？（投稿済みの写真は消えません）`)) return;
   inns = inns.filter(i => i.id !== c.id); saveInns(inns); store.set('svInnCur', '');
-  renderInnSel(); updateTarget();
+  renderInnSel(); updateTarget(); innChanged();
   $('innMsg').className = 'status ok'; $('innMsg').textContent = `「${c.name}」を一覧から削除しました。`;
 };
 ['placeId', 'lblInn', 'rLblInn'].forEach(id => $(id).addEventListener('input', updateTarget));
-['noPlace', 'lblOn', 'rLblOn'].forEach(id => $(id).addEventListener('change', updateTarget));
+['noPlace', 'lblOn', 'rLblOn', 'bLblOn'].forEach(id => $(id).addEventListener('change', updateTarget));
+/* ================= 追加機能 ================= */
+const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;'}[c]));
+function jget(k, d){ try{ const v = JSON.parse(store.get(k)); return v == null ? d : v; }catch(e){ return d; } }
+function jset(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(e){ return false; } }
+function ymd(d){ const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; }
+function jpDate(s){ const [y, m, d] = s.split('-'); return `${y}年${+m}月${+d}日`; }
+let allPhotos = [];
+function photoName(id){ return jget('svNames', {})[id] || ''; }
+function setPhotoName(id, n){ if (!id || !n) return; const o = jget('svNames', {}); o[id] = n; jset('svNames', o); }
+/* 写真がどのお宿さまのものか（プレイスIDが同じ、または登録位置から500m以内） */
+function photoInn(p){
+  const pid = p.places && p.places[0] && p.places[0].placeId;
+  if (pid){ const c = inns.find(x => x.placeId === pid); if (c) return c; }
+  const ll = p.pose && p.pose.latLngPair; if (!ll) return null;
+  let best = null, bd = 500;
+  inns.forEach(x => { if (x.lat == null) return; const d = distM(ll, {latitude:x.lat, longitude:x.lng}); if (d < bd){ bd = d; best = x; } });
+  return best;
+}
+function photoLabel(p){
+  return photoName(p.photoId.id) || ((p.pose && p.pose.level && p.pose.level.name) ? p.pose.level.name + 'の写真' : '360度写真');
+}
+
+/* ---------- ⑥ 英語のラベル ---------- */
+const EN_DICT = [
+  ['（男湯）', "(Men's)"], ['(男湯)', "(Men's)"], ['宿までの道', 'Road to the Inn'], ['駐車場', 'Parking'],
+  ['外観', 'Exterior'], ['玄関前', 'Front Entrance'], ['玄関', 'Entrance'], ['入り口', 'Entrance'], ['入口', 'Entrance'],
+  ['館内側', 'Inside'], ['フロント', 'Front Desk'], ['ロビー', 'Lobby'], ['ラウンジ', 'Lounge'], ['廊下', 'Hallway'],
+  ['階段', 'Stairs'], ['エレベーター', 'Elevator'], ['和洋室', 'Japanese-Western Room'], ['和室', 'Japanese-style Room'],
+  ['洋室', 'Western-style Room'], ['特別室', 'Special Room'], ['客室', 'Guest Room'], ['部屋', 'Room'],
+  ['中心', 'Center'], ['中央', 'Center'], ['窓際', 'Window Side'], ['縁側', 'Veranda'], ['広縁', 'Sitting Area'],
+  ['床の間', 'Tokonoma'], ['大浴場', 'Large Bath'], ['男湯', "Men's Bath"], ['露天風呂', 'Open-air Bath'],
+  ['貸切風呂', 'Private Bath'], ['貸し切り風呂', 'Private Bath'], ['家族風呂', 'Family Bath'], ['内湯', 'Indoor Bath'],
+  ['お風呂', 'Bath'], ['風呂', 'Bath'], ['浴場', 'Bath'], ['温泉', 'Hot Spring'], ['脱衣所', 'Changing Room'],
+  ['お食事処', 'Dining Room'], ['食事処', 'Dining Room'], ['食堂', 'Dining Hall'], ['レストラン', 'Restaurant'],
+  ['宴会場', 'Banquet Hall'], ['大広間', 'Banquet Hall'], ['個室', 'Private Room'], ['お土産', 'Souvenirs'],
+  ['売店', 'Shop'], ['中庭', 'Courtyard'], ['庭園', 'Garden'], ['庭', 'Garden'], ['テラス', 'Terrace'],
+  ['屋上', 'Rooftop'], ['展望台', 'Observation Deck'], ['展望', 'View'], ['景色', 'View'], ['眺め', 'View'],
+  ['喫煙所', 'Smoking Area'], ['トイレ', 'Restroom'], ['洗面所', 'Washroom'], ['卓球場', 'Table Tennis'],
+  ['休憩所', 'Rest Area'], ['休憩室', 'Rest Area'], ['桟橋', 'Pier'], ['船着き場', 'Boat Landing'],
+  ['いかだ', 'Raft'], ['海', 'Sea'], ['本館', 'Main Building'], ['別館', 'Annex'], ['新館', 'New Wing'],
+  ['離れ', 'Detached Cottage'], ['道中', 'On the Way'], ['道', 'Road'], ['奥', 'Back'], ['前', 'Front']
+].sort((a, b) => b[0].length - a[0].length);
+function toEn(src){
+  let s = (src || '').trim().replace(/[０-９]/g, d => String.fromCharCode(d.charCodeAt(0) - 0xFEE0));
+  if (!s) return '';
+  let out = '', i = 0, miss = false;
+  while (i < s.length){
+    const rest = s.slice(i); let m;
+    if ((m = rest.match(/^(\d+)\s*号室/))){ out += ` Room ${m[1]} `; i += m[0].length; continue; }
+    if ((m = rest.match(/^地下\s*(\d+)\s*階?/))){ out += ` B${m[1]}F `; i += m[0].length; continue; }
+    if ((m = rest.match(/^(\d+)\s*(階|F|f)(?![a-z])/))){ out += ` ${m[1]}F `; i += m[0].length; continue; }
+    const hit = EN_DICT.find(([j]) => rest.startsWith(j));
+    if (hit){ out += ' ' + hit[1] + ' '; i += hit[0].length; continue; }
+    const ch = s[i];
+    if ('・／/、'.includes(ch)) out += ' / ';
+    else if ('（(【「'.includes(ch)) out += ' (';
+    else if ('）)】」'.includes(ch)) out += ') ';
+    else if (/[\s　の]/.test(ch)) out += ' ';
+    else if (/[\x21-\x7e]/.test(ch)) out += ch;
+    else miss = true;
+    i++;
+  }
+  if (miss) return '';
+  return out.replace(/\s+/g, ' ').replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s*\/\s*/g, ' / ').replace(/^\/\s*|\s*\/$/g, '').trim();
+}
+function autoEn(srcId, enId){
+  const e = $(enId);
+  if (e.dataset.manual === '1' && e.value.trim()) return;
+  e.value = toEn($(srcId).value); e.dataset.manual = '';
+}
+function refreshPreviews(){
+  renderPreview('lblPrev', 'lblInn', 'lblPlace', 'lblOn'); renderPreview('rLblPrev', 'rLblInn', 'rLblPlace', 'rLblOn');
+  if (typeof renderBPrev === 'function') renderBPrev();
+}
+[['lblPlace', 'lblEn'], ['rLblPlace', 'rLblEn']].forEach(([s, e]) => {
+  $(s).addEventListener('input', () => { autoEn(s, e); refreshPreviews(); });
+  $(e).addEventListener('input', () => { $(e).dataset.manual = $(e).value.trim() ? '1' : ''; refreshPreviews(); });
+});
+$('rLblEn').value = toEn($('rLblPlace').value);
+document.querySelectorAll('.enOn').forEach(c => {
+  c.checked = enOn();
+  c.addEventListener('change', () => {
+    store.set('svLblEn', c.checked ? '1' : '0');
+    document.querySelectorAll('.enOn').forEach(o => o.checked = c.checked);
+    refreshPreviews();
+  });
+});
+
+/* ---------- ③ 撮影チェックリスト ---------- */
+const CK_DEFAULT = ['外観・玄関前', '玄関（館内側）', 'フロント・ロビー', '1階廊下', '2階廊下', '客室・入口', '客室・中心', '客室・窓際／縁側', 'お食事処', '大浴場（男湯）'];
+function ckKey(){ const c = curInn(); return 'svCk_' + (c ? c.id : '_'); }
+function ckData(){ return jget(ckKey(), null) || {items:CK_DEFAULT.map(n => ({n, shot:false, post:false}))}; }
+function renderCk(){
+  const d = ckData(), box = $('ckList'), c = curInn();
+  box.innerHTML = '<span class="h">場所</span><span class="h">撮影済</span><span class="h">投稿済</span>' +
+    d.items.map((it, i) => `<input type="text" data-i="${i}" data-k="n" value="${esc(it.n)}" aria-label="場所${i + 1}">
+      <input type="checkbox" data-i="${i}" data-k="shot" ${it.shot ? 'checked' : ''} aria-label="撮影済">
+      <input type="checkbox" data-i="${i}" data-k="post" ${it.post ? 'checked' : ''} aria-label="投稿済">`).join('');
+  box.querySelectorAll('input').forEach(el => el.addEventListener(el.type === 'checkbox' ? 'change' : 'input', () => {
+    const dd = ckData(), it = dd.items[+el.dataset.i];
+    if (el.type === 'checkbox'){ it[el.dataset.k] = el.checked; if (el.dataset.k === 'post' && el.checked) it.shot = true; }
+    else it.n = el.value;
+    jset(ckKey(), dd); if (el.type === 'checkbox') renderCk(); else ckSummary(dd);
+  }));
+  ckSummary(d);
+  $('ckBox').querySelector('.hint').style.display = '';
+  if (!c) $('ckSum').textContent = '（お宿さまを選ぶと、宿ごとに記録できます）';
+}
+function ckSummary(d){
+  const n = d.items.length, s = d.items.filter(x => x.shot).length, p = d.items.filter(x => x.post).length;
+  if (curInn()) $('ckSum').textContent = `　撮影 ${s}/${n}・投稿 ${p}/${n}`;
+  $('ckBar').style.width = (n ? p / n * 100 : 0) + '%';
+}
+/* 投稿した写真の場所名が同じなら、投稿済にチェック */
+function autoPostCk(){
+  const c = curInn(); if (!c) return;
+  const norm = t => (t || '').replace(/[\s　・／/（）()]/g, '');
+  const names = new Set(allPhotos.filter(p => photoInn(p) === c).map(p => norm(photoName(p.photoId.id))).filter(Boolean));
+  const d = ckData(); let ch = false;
+  d.items.forEach(it => { if (!it.post && names.has(norm(it.n))){ it.post = it.shot = true; ch = true; } });
+  if (ch){ jset(ckKey(), d); renderCk(); }
+}
+
+/* ---------- ④ 共有リンク・QRコード ---------- */
+let shareLinks = [];
+function renderShare(){
+  const c = curInn(), a = $('shareArea');
+  if (!c){ a.innerHTML = '<div class="hint" style="margin-top:8px">お宿さまを選ぶと表示されます。</div>'; return; }
+  shareLinks = [];
+  if (c.placeId) shareLinks.push({t:'お宿さまのGoogleマップ', s:'Googleマップ', u:`https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(c.placeId)}`});
+  allPhotos.filter(p => photoInn(p) === c && p.shareLink && p.mapsPublishStatus === 'PUBLISHED')
+    .forEach(p => shareLinks.push({t:'360度写真：' + photoLabel(p), s:photoLabel(p), u:p.shareLink}));
+  const prev = $('shareSel') ? $('shareSel').value : '';
+  if (!shareLinks.length){ a.innerHTML = '<div class="hint" style="margin-top:8px">プレイスIDを登録するか、ログインして④の一覧を読み込むと表示されます。</div>'; return; }
+  a.innerHTML = `<div class="share"><canvas id="qrCv" width="600" height="690"></canvas><div>
+    <label for="shareSel">リンクを選ぶ</label>
+    <select id="shareSel" style="font-size:14px;font-weight:normal">${shareLinks.map((l, i) => `<option value="${i}">${esc(l.t)}</option>`).join('')}</select>
+    <label for="shareUrl">リンク</label>
+    <input type="text" id="shareUrl" readonly>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button id="shareCopy" class="ghost">リンクをコピー</button>
+      <button id="shareOpen" class="ghost">開いて確かめる</button>
+      <button id="qrSave">QRコードを画像で保存</button>
+    </div>
+    <div class="hint">「お宿さまのGoogleマップ」は、開いて「ストリートビューと360°ビュー」を押すと館内の写真が見られます。写真ごとのリンクは、その写真が直接開きます。</div>
+    <div id="shareMsg" class="status"></div></div></div>`;
+  if (prev && shareLinks[+prev]) $('shareSel').value = prev;
+  $('shareSel').onchange = drawQr;
+  $('shareCopy').onclick = async () => {
+    try{ await navigator.clipboard.writeText($('shareUrl').value); }catch(e){ $('shareUrl').select(); document.execCommand('copy'); }
+    $('shareMsg').className = 'status ok'; $('shareMsg').textContent = 'コピーしました。';
+  };
+  $('shareOpen').onclick = () => window.open($('shareUrl').value, '_blank', 'noopener');
+  $('qrSave').onclick = () => {
+    const l = shareLinks[+$('shareSel').value], a2 = document.createElement('a');
+    a2.download = `${c.name}_${l.s}_QR.png`.replace(/[\\/:*?"<>|\s]/g, '_');
+    a2.href = $('qrCv').toDataURL('image/png'); a2.click();
+  };
+  drawQr();
+}
+function drawQr(){
+  const c = curInn(), l = shareLinks[+$('shareSel').value]; if (!l) return;
+  $('shareUrl').value = l.u;
+  const cv = $('qrCv'), g = cv.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+  if (typeof qrcode === 'undefined'){ g.fillStyle = '#b5574b'; g.font = 'bold 28px sans-serif'; g.textAlign = 'center'; g.fillText('QRの読み込みに失敗', 300, 300); return; }
+  const q = qrcode(0, 'M'); q.addData(l.u); q.make();
+  const n = q.getModuleCount(), cell = Math.floor(520 / n), off = Math.floor((600 - cell * n) / 2);
+  g.fillStyle = '#000';
+  for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) g.fillRect(off + k * cell, off + r * cell, cell, cell);
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#3a2e2a';
+  const fit = (t, size, y, w) => { let s = size; do { g.font = `bold ${s}px ${LBL_FONT}`; s -= 2; } while (g.measureText(t).width > w && s > 14); g.fillText(t, 300, y); };
+  fit(c ? c.name : '', 34, 618, 560);
+  g.fillStyle = '#8a4b40'; fit(l.s === 'Googleマップ' ? '館内を360度で見る（Googleマップ）' : l.s + '（360度）', 26, 660, 560);
+}
+
+/* ---------- ① 閲覧数の記録とレポート ---------- */
+function saveViewSnap(photos){
+  const snaps = jget('svViews', []), today = ymd(new Date());
+  const v = Object.fromEntries(photos.map(p => [p.photoId.id, +(p.viewCount || 0)]));
+  const last = snaps[snaps.length - 1];
+  if (last && last.d === today) last.v = v; else snaps.push({d:today, v});
+  while (snaps.length > 120) snaps.shift();
+  jset('svViews', snaps);
+}
+/* 比べる記録：約1か月前（28日以上前で一番新しい記録）。なければ今日より前で一番古い記録 */
+function baseSnap(){
+  const snaps = jget('svViews', []), today = ymd(new Date());
+  const lim = ymd(new Date(Date.now() - 28 * 864e5));
+  const older = snaps.filter(s => s.d <= lim);
+  if (older.length) return older[older.length - 1];
+  return snaps.find(s => s.d < today) || null;
+}
+function innReport(c){
+  const ps = allPhotos.filter(p => photoInn(p) === c), base = baseSnap();
+  const rows = ps.map(p => {
+    const now = +(p.viewCount || 0), id = p.photoId.id;
+    const was = base && base.v[id] != null ? base.v[id] : null;
+    return {p, now, plus:was == null ? null : now - was};
+  }).sort((a, b) => b.now - a.now);
+  const total = rows.reduce((a, r) => a + r.now, 0);
+  const plus = rows.some(r => r.plus != null) ? rows.reduce((a, r) => a + (r.plus || 0), 0) : null;
+  return {c, rows, total, plus, base, pub:ps.filter(p => p.mapsPublishStatus === 'PUBLISHED').length};
+}
+function reportHtml(r, forPrint){
+  const st = p => STATUS_JA[p.mapsPublishStatus] || '審査中';
+  const since = r.base ? `${jpDate(r.base.d)}から` : '';
+  return `<div class="repinn">
+    ${forPrint ? '' : `<h3 style="font-size:15px;margin:14px 0 4px">${esc(r.c.name)}</h3>`}
+    <div class="sum"><b style="font-size:20px">${r.total.toLocaleString()}</b> 回（これまでの合計）
+      ${r.plus != null ? `　<span class="plus">${since} +${r.plus.toLocaleString()} 回</span>` : `　<span class="hint">※ 増えた回数は、次回以降のレポートから出ます</span>`}
+      <br><span class="hint">360度写真 ${r.rows.length}枚（公開中 ${r.pub}枚）</span></div>
+    ${r.rows.length ? `<table class="rep"><thead><tr><th></th><th>場所</th><th>状態</th><th class="n">閲覧数</th><th class="n">${r.base ? '増えた回数' : ''}</th></tr></thead><tbody>
+    ${r.rows.map(x => `<tr><td style="width:84px"><img src="${esc(x.p.thumbnailUrl || '')}" alt="" style="width:80px;aspect-ratio:2/1;object-fit:cover;border-radius:4px;display:block"></td>
+      <td>${x.p.shareLink && !forPrint ? `<a href="${esc(x.p.shareLink)}" target="_blank" rel="noopener">${esc(photoLabel(x.p))}</a>` : esc(photoLabel(x.p))}</td>
+      <td>${st(x.p)}</td><td class="n">${x.now.toLocaleString()}</td><td class="n">${x.plus != null ? '<span class="plus">+' + x.plus.toLocaleString() + '</span>' : ''}</td></tr>`).join('')}
+    </tbody></table>` : '<div class="hint">このお宿さまの写真はまだありません。</div>'}</div>`;
+}
+let repMode = null;
+function showReport(mode){
+  repMode = mode;
+  const a = $('repArea');
+  if (mode === 'one'){
+    const c = curInn(); if (!c){ a.innerHTML = '<div class="status err">★でお宿さまを選んでください。</div>'; return; }
+    a.innerHTML = reportHtml(innReport(c), false);
+  } else {
+    const list = inns.map(innReport), other = allPhotos.filter(p => !photoInn(p));
+    a.innerHTML = `<table class="rep"><thead><tr><th>お宿さま</th><th class="n">写真</th><th class="n">閲覧数の合計</th><th class="n">増えた回数</th></tr></thead><tbody>
+      ${list.map(r => `<tr><td>${esc(r.c.name)}</td><td class="n">${r.rows.length}</td><td class="n">${r.total.toLocaleString()}</td><td class="n">${r.plus != null ? '<span class="plus">+' + r.plus.toLocaleString() + '</span>' : ''}</td></tr>`).join('')}
+      ${other.length ? `<tr><td>（どのお宿さまにも入らない写真）</td><td class="n">${other.length}</td><td class="n">${other.reduce((s, p) => s + +(p.viewCount || 0), 0).toLocaleString()}</td><td></td></tr>` : ''}
+      </tbody></table><div class="hint">${baseSnap() ? '増えた回数は ' + jpDate(baseSnap().d) + ' の記録との差です。' : '増えた回数は、次回以降に出ます。'}</div>`;
+  }
+  $('repPrint').disabled = false;
+}
+$('repBtn').onclick = () => showReport('one');
+$('repAllBtn').onclick = () => showReport('all');
+$('repPrint').onclick = () => {
+  const w = window.open('', '_blank'); if (!w){ alert('ポップアップがブロックされました。ブラウザの設定で許可してください。'); return; }
+  const today = new Date(), month = `${today.getFullYear()}年${today.getMonth() + 1}月`;
+  const one = repMode === 'one' && curInn();
+  const body = one ? reportHtml(innReport(curInn()), true) : $('repArea').innerHTML;
+  w.document.write(`<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${one ? esc(curInn().name) + '様 ' : ''}360度写真 閲覧レポート ${month}</title>
+  <style>body{font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;color:#3a2e2a;max-width:760px;margin:24px auto;padding:0 16px;line-height:1.6}
+  h1{font-size:20px;border-bottom:3px solid #b5574b;padding-bottom:6px}.hint{color:#8a7b73;font-size:12px}.plus{color:#4f7a5a;font-weight:bold}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}th,td{border-bottom:1px solid #e8dfd6;padding:6px;text-align:left}td.n,th.n{text-align:right}
+  tr{break-inside:avoid}.sum{background:#faf7f2;border:1px solid #e8dfd6;border-radius:8px;padding:10px 14px;margin-top:10px}
+  .foot{margin-top:24px;font-size:12px;color:#8a7b73;border-top:1px solid #e8dfd6;padding-top:8px}
+  @media print{.noprint{display:none}body{margin:0 auto}}</style></head><body>
+  <div class="noprint" style="text-align:right"><button onclick="print()" style="padding:8px 16px;font-size:14px">印刷・PDFで保存</button></div>
+  <h1>${one ? esc(curInn().name) + '様　' : ''}Googleマップ 360度写真 閲覧レポート</h1>
+  <div>${jpDate(ymd(today))} 時点</div>
+  ${body}
+  <div class="foot">閲覧数は、Googleマップ・ストリートビューで写真が見られた回数（Google発表の数値）です。反映まで数日かかることがあります。<br>作成：やどてまり</div>
+  </body></html>`);
+  w.document.close();
+};
+
+/* ---------- ② 見取り図を地図に重ねる ---------- */
+const plan = {d:null}, planLayers = [];
+function planKey(){ const c = curInn(); return 'svPlan_' + (c ? c.id : '_'); }
+function savePlan(){
+  if (!plan.d) { try{ localStorage.removeItem(planKey()); }catch(e){} return; }
+  if (!jset(planKey(), plan.d)) alert('見取り図の画像が大きすぎて保存できませんでした。小さめの画像にしてください（表示はこのままできます）。');
+}
+function PlanLayer(m){
+  const pane = m.createPane('plan'); pane.style.zIndex = 350; pane.style.pointerEvents = 'none';
+  const img = document.createElement('img');
+  img.style.cssText = 'position:absolute;left:0;top:0;max-width:none;transform-origin:50% 50%;pointer-events:none;display:none';
+  pane.appendChild(img);
+  const handle = L.marker([0, 0], {draggable:true, zIndexOffset:1000, icon:L.divIcon({className:'', iconSize:[26, 26], iconAnchor:[13, 13], html:'<div class="planhandle" title="ドラッグで見取り図を動かす">✥</div>'})});
+  handle.on('drag', e => { if (!plan.d) return; const ll = e.target.getLatLng(); plan.d.lat = ll.lat; plan.d.lng = ll.lng; planLayers.forEach(l => l.render()); });
+  handle.on('dragend', savePlan);
+  function render(){
+    const d = plan.d;
+    if (!d || !d.show){ img.style.display = 'none'; if (m.hasLayer(handle)) m.removeLayer(handle); return; }
+    if (img.getAttribute('src') !== d.img) img.src = d.img;
+    const p = m.latLngToLayerPoint([d.lat, d.lng]);
+    const mpp = 40075016.686 * Math.cos(d.lat * Math.PI / 180) / Math.pow(2, m.getZoom() + 8);
+    img.style.width = (d.w / mpp) + 'px';
+    img.style.left = p.x + 'px'; img.style.top = p.y + 'px';
+    img.style.transform = `translate(-50%,-50%) rotate(${d.rot}deg)`;
+    img.style.opacity = d.op; img.style.display = 'block';
+    handle.setLatLng([d.lat, d.lng]);
+    if (d.lock){ if (m.hasLayer(handle)) m.removeLayer(handle); }
+    else if (!m.hasLayer(handle)) handle.addTo(m);
+  }
+  m.on('zoomend viewreset', render);
+  m.on('zoomstart', () => { img.style.display = 'none'; });
+  const o = {map:m, render}; planLayers.push(o); render(); return o;
+}
+const PLAN_UI = `
+  <div class="hint">見取り図・間取り図の画像（紙を撮った写真やスキャンでもOK）を選び、黄色の <b>✥</b> をドラッグして建物に重ねます。横幅と回転を航空写真に合わせると、部屋の中の位置を正確に置けます。お宿さまごとに、このパソコンに保存されます。</div>
+  <input type="file" class="pFile" accept="image/*" style="margin-top:8px">
+  <div class="pCtl" style="display:none">
+    <label class="check"><input type="checkbox" class="pShow"> 見取り図を表示する</label>
+    <label>横幅：<b class="pWv"></b> m（建物の横幅に合わせる）</label>
+    <input type="range" class="pW" min="3" max="200" step="0.5">
+    <label>回転：<b class="pRv"></b>°</label>
+    <input type="range" class="pR" min="-180" max="180" step="0.5">
+    <label>濃さ：<b class="pOv"></b>%</label>
+    <input type="range" class="pO" min="10" max="100" step="5">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button class="ghost pCenter">地図の真ん中に持ってくる</button>
+      <button class="ghost pLock"></button>
+      <button class="ghost pDel">見取り図を消す</button>
+    </div>
+  </div>`;
+function activeMap(){ return (bMap && $('batchMode').style.display !== 'none') ? bMap : map; }
+function renderPlanUI(){
+  document.querySelectorAll('.planui').forEach(u => {
+    if (!u.dataset.init){ u.innerHTML = PLAN_UI; u.dataset.init = '1'; bindPlanUI(u); }
+    const d = plan.d;
+    u.querySelector('.pCtl').style.display = d ? '' : 'none';
+    if (!d) return;
+    u.querySelector('.pShow').checked = d.show;
+    u.querySelector('.pW').value = d.w; u.querySelector('.pWv').textContent = d.w;
+    u.querySelector('.pR').value = d.rot; u.querySelector('.pRv').textContent = d.rot;
+    u.querySelector('.pO').value = Math.round(d.op * 100); u.querySelector('.pOv').textContent = Math.round(d.op * 100);
+    u.querySelector('.pLock').textContent = d.lock ? '位置の固定を外す（✥を出す）' : '位置を固定する（✥を隠す）';
+  });
+}
+function bindPlanUI(u){
+  const upd = (fn, save = true) => { if (!plan.d) return; fn(plan.d); planLayers.forEach(l => l.render()); renderPlanUI(); if (save) savePlan(); };
+  u.querySelector('.pFile').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    const im = new Image();
+    im.onload = () => {
+      const s = Math.min(1, 1400 / Math.max(im.width, im.height));
+      const cv = document.createElement('canvas'); cv.width = Math.round(im.width * s); cv.height = Math.round(im.height * s);
+      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      const ctr = activeMap().getCenter();
+      const old = plan.d;
+      plan.d = {img:cv.toDataURL('image/jpeg', 0.82), lat:old ? old.lat : ctr.lat, lng:old ? old.lng : ctr.lng, w:old ? old.w : 30, rot:old ? old.rot : 0, op:old ? old.op : 0.6, show:true, lock:false};
+      URL.revokeObjectURL(im.src);
+      planLayers.forEach(l => l.render()); renderPlanUI(); savePlan();
+      e.target.value = '';
+    };
+    im.src = URL.createObjectURL(f);
+  };
+  u.querySelector('.pShow').onchange = e => upd(d => d.show = e.target.checked);
+  u.querySelector('.pW').oninput = e => upd(d => d.w = +e.target.value, false);
+  u.querySelector('.pR').oninput = e => upd(d => d.rot = +e.target.value, false);
+  u.querySelector('.pO').oninput = e => upd(d => d.op = +e.target.value / 100, false);
+  ['.pW', '.pR', '.pO'].forEach(k => u.querySelector(k).onchange = savePlan);
+  u.querySelector('.pCenter').onclick = () => upd(d => { const c = activeMap().getCenter(); d.lat = c.lat; d.lng = c.lng; d.show = true; });
+  u.querySelector('.pLock').onclick = () => upd(d => d.lock = !d.lock);
+  u.querySelector('.pDel').onclick = () => { if (!confirm('このお宿さまの見取り図を消しますか？')) return; plan.d = null; savePlan(); planLayers.forEach(l => l.render()); renderPlanUI(); };
+}
+function loadPlan(){ plan.d = jget(planKey(), null); planLayers.forEach(l => l.render()); renderPlanUI(); }
+PlanLayer(map);
+
+/* ---------- ⑤ 館内（まとめて） ---------- */
+let bMap = null, bItems = [], bCur = -1, bLine = null, bPlaced = null;
+function initBatchMap(){
+  if (bMap){ bMap.invalidateSize(); return; }
+  bMap = L.map('bMap', {maxZoom:23, zoomSnap:0.5}).setView(map.getCenter(), Math.max(map.getZoom(), 19));
+  const s = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'}).addTo(bMap);
+  const o = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'});
+  L.control.layers({'航空写真':s, '地図':o}).addTo(bMap);
+  L.control.scale({imperial:false}).addTo(bMap);
+  bPlaced = L.layerGroup().addTo(bMap);
+  bLine = L.polyline([], {color:'#ffd54a', weight:2, dashArray:'5 4'}).addTo(bMap);
+  bMap.on('click', e => {
+    const it = bItems[bCur]; if (!it || it.uploaded) return;
+    placeB(it, e.latlng);
+    const nx = bItems.findIndex((x, i) => i > bCur && !x.pos && !x.uploaded);
+    if (nx >= 0) selectB(nx); else renderB();
+  });
+  PlanLayer(bMap);
+  drawBPlaced();
+  const c = curInn(); if (c && c.lat != null) bMap.setView([c.lat, c.lng], Math.max(c.zoom || 18, 19));
+}
+function drawBPlaced(){
+  if (!bPlaced) return; bPlaced.clearLayers();
+  const c = curInn();
+  allPhotos.filter(p => !c || photoInn(p) === c).forEach(p => {
+    const ll = p.pose && p.pose.latLngPair;
+    if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:5, color:'#4f7a5a'}).bindTooltip('投稿済み：' + photoLabel(p)).addTo(bPlaced);
+  });
+}
+function bIcon(i){
+  const it = bItems[i];
+  return L.divIcon({className:'', iconSize:[24, 24], iconAnchor:[12, 12],
+    html:`<div class="bnum${i === bCur ? ' sel' : ''}${it.uploaded ? ' up' : ''}"><i style="transform:rotate(${it.heading}deg)"></i>${i + 1}</div>`});
+}
+function placeB(it, ll){
+  it.pos = ll;
+  const i = bItems.indexOf(it);
+  if (!it.marker){
+    it.marker = L.marker(ll, {draggable:true, icon:bIcon(i)}).addTo(bMap);
+    it.marker.on('dragend', e => { it.pos = e.target.getLatLng(); renderB(); });
+    it.marker.on('click', () => selectB(bItems.indexOf(it)));
+  } else it.marker.setLatLng(ll);
+}
+function selectB(i){
+  bCur = i;
+  const it = bItems[i], pv = bItems[i - 1];
+  if (it && pv && !it.touched && !it.pos && !it.uploaded) it.heading = pv.heading;   // 向きは前の写真から引き継ぐ
+  loadBFields(); renderB();
+}
+function loadBFields(){
+  const it = bItems[bCur]; if (!it) return;
+  $('bHeading').value = it.heading; $('bHeadingVal').textContent = it.heading;
+  $('bPlace').value = it.place; $('bEn').value = it.en;
+  $('bLevelNum').value = it.lvlNum; $('bLevelName').value = it.lvlName;
+}
+function renderBPrev(){
+  const cv = $('bLblPrev'); if (!cv) return;
+  const g = cv.getContext('2d'); g.clearRect(0, 0, cv.width, cv.height);
+  const it = bItems[bCur], inn = $('lblInn').value.trim();
+  if (!$('bLblOn').checked || !it || !(inn || it.place)) return;
+  g.drawImage(drawPatch(cv.width, inn, it.place, enOn() ? it.en : ''), 0, 0);
+}
+function renderB(){
+  $('bStrip').innerHTML = '';
+  bItems.forEach((it, i) => {
+    const f = document.createElement('figure');
+    f.className = (i === bCur ? 'sel ' : '') + (it.pos ? 'placed' : '');
+    f.innerHTML = `<img src="${it.url}" alt=""><div>${i + 1}. ${esc(it.place || '場所名なし')}<br>${it.uploaded ? '公開済み' : it.error ? '失敗' : it.pos ? '配置済み' : '未配置'}</div>`;
+    f.onclick = () => selectB(i);
+    $('bStrip').appendChild(f);
+  });
+  bItems.forEach((it, i) => { if (it.marker) it.marker.setIcon(bIcon(i)); });
+  if (bLine) bLine.setLatLngs(bItems.filter(x => x.pos).map(x => x.pos));
+  const it = bItems[bCur], nb = $('bNow');
+  if (!bItems.length) nb.textContent = '写真を選ぶと、ここに「今選んでいる写真」が出ます。';
+  else if (it){
+    nb.innerHTML = `<img src="${it.url}" alt="" style="width:200px;aspect-ratio:2/1;object-fit:cover;border-radius:6px;display:block;margin-bottom:6px">`;
+    nb.insertAdjacentText('beforeend', `今選んでいる写真：${bCur + 1}枚目 / 全${bItems.length}枚（${it.name}）\n` +
+      (it.uploaded ? 'この写真は公開済みです。' : it.pos ? '置いた位置を直すときは、地図をクリックするか番号の丸をドラッグします。' : '撮影した場所を地図でクリックしてください。'));
+  }
+  const pid = $('placeId').value.trim();
+  const ready = bItems.length && bItems.every(x => x.pos), allUp = bItems.length && bItems.every(x => x.uploaded);
+  $('bUploadBtn').disabled = !(token && ready && pid && !allUp);
+  $('bUploadBtn').textContent = bItems.some(x => x.uploaded) && !allUp ? '失敗した写真だけもう一度アップロード' : `まとめてアップロードして公開${bItems.length ? `（${bItems.length}枚）` : ''}`;
+  renderBPrev();
+}
+$('bFiles').onchange = () => {
+  bItems.forEach(it => { if (it.marker) bMap.removeLayer(it.marker); URL.revokeObjectURL(it.url); });
+  const files = [...$('bFiles').files].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric:true}));
+  const ln = +$('levelNum').value || 1, lname = $('levelName').value.trim() || ln + 'F';
+  bItems = files.map(f => ({file:f, url:URL.createObjectURL(f), name:f.name, time:timeFromName(f), pos:null, marker:null,
+    heading:+$('bHeading').value || 0, place:'', en:'', enManual:false, lvlNum:ln, lvlName:lname, uploaded:null, error:null}));
+  $('bStatus').textContent = '';
+  bCur = bItems.length ? 0 : -1; loadBFields(); renderB();
+};
+$('bHeading').oninput = () => { const it = bItems[bCur]; $('bHeadingVal').textContent = $('bHeading').value; if (it){ it.heading = +$('bHeading').value; it.touched = true; renderB(); } };
+$('bHeadAll').onclick = () => { bItems.forEach(it => { if (!it.uploaded) it.heading = +$('bHeading').value; }); renderB(); };
+$('bPlace').oninput = () => {
+  const it = bItems[bCur]; if (!it) return;
+  it.place = $('bPlace').value;
+  if (!(it.enManual && it.en)){ it.en = toEn(it.place); it.enManual = false; $('bEn').value = it.en; }
+  renderB();
+};
+$('bEn').oninput = () => { const it = bItems[bCur]; if (!it) return; it.en = $('bEn').value; it.enManual = !!it.en.trim(); renderBPrev(); };
+/* 階数は、この写真と、この後の写真にまとめて入る */
+['bLevelNum', 'bLevelName'].forEach(id => $(id).oninput = () => {
+  if (id === 'bLevelNum' && /^\d+$/.test($('bLevelNum').value) && /^\d*F?$/.test($('bLevelName').value)) $('bLevelName').value = $('bLevelNum').value + 'F';
+  bItems.forEach((it, i) => { if (i >= bCur && !it.uploaded){ it.lvlNum = +$('bLevelNum').value; it.lvlName = $('bLevelName').value.trim(); } });
+});
+$('bPrev').onclick = () => { if (bCur > 0) selectB(bCur - 1); };
+$('bNext').onclick = () => { if (bCur < bItems.length - 1) selectB(bCur + 1); };
+$('bUnplace').onclick = () => { const it = bItems[bCur]; if (!it || it.uploaded || !it.marker) return; bMap.removeLayer(it.marker); it.marker = null; it.pos = null; renderB(); };
+$('bLblOn').addEventListener('change', renderBPrev);
+$('lblInn').addEventListener('input', renderBPrev);
+$('placeId').addEventListener('input', renderB);
+$('bUploadBtn').onclick = async () => {
+  const st = $('bStatus'); st.className = 'status';
+  const pid = $('placeId').value.trim(), inn = $('lblInn').value.trim();
+  $('bUploadBtn').disabled = true;
+  let ng = 0;
+  for (let i = 0; i < bItems.length; i++){
+    const it = bItems[i]; if (it.uploaded) continue;
+    st.textContent = `${i + 1} / ${bItems.length} 枚目をアップロード中…（画面を閉じないでください）`;
+    try{
+      const { uploadUrl } = await api('/photo:startUpload', {method:'POST', body:'{}'});
+      let body = it.file;
+      if ($('bLblOn').checked && (inn || it.place.trim())) body = await labelImage(it.file, inn, it.place.trim(), enOn() ? it.en.trim() : '');
+      const up = await fetch(uploadUrl, {method:'POST', headers:{'Authorization':'Bearer ' + token, 'Content-Type':'image/jpeg'}, body});
+      if (!up.ok) throw new Error('写真の送信に失敗（HTTP ' + up.status + '）');
+      const level = {number:it.lvlNum, name:it.lvlName || (it.lvlNum + 'F')};
+      const res = await api('/photo', {method:'POST', body:JSON.stringify({
+        uploadReference:{uploadUrl},
+        pose:{latLngPair:{latitude:it.pos.lat, longitude:it.pos.lng}, heading:it.heading, level},
+        captureTime:it.time.toISOString(), places:[{placeId:pid}]
+      })});
+      it.uploaded = res.photoId.id; it.error = null;
+      { const pend = loadPendLvl(); pend[it.uploaded] = level; savePendLvl(pend); }
+      setPhotoName(it.uploaded, it.place.trim());
+      it.marker.dragging.disable();
+    }catch(e){ it.error = e.message; ng++; }
+    renderB();
+  }
+  let msg = ng ? `${bItems.length - ng}枚を公開しました。${ng}枚は失敗しました（もう一度ボタンを押すと、失敗した写真だけ上げ直します）。` : `全${bItems.length}枚を公開しました。公開審査に入りました。`;
+  const ids = bItems.map(x => x.uploaded || null);
+  if ($('bChain').checked && ids.filter(Boolean).length > 1){
+    st.textContent = '写真同士をつないでいます…';
+    const c = await connectRoad(ids);
+    msg += c.ng ? '\n写真同士のつなぎは、Google側の処理待ちのため一部できませんでした。公開後に④で「チェックした順番につなぐ」をしてください。' : '\n写真同士も順番につなぎました。';
+  }
+  st.className = 'status ' + (ng ? 'err' : 'ok'); st.textContent = msg;
+  renderB(); loadList();
+};
+
+/* ---------- お宿さまを切り替えたとき・一覧を読み込んだとき ---------- */
+function innChanged(){
+  renderCk(); renderShare(); loadPlan(); drawBPlaced(); if (bItems.length) renderB();
+  if (token) loadList();
+  if (repMode) showReport(repMode);
+}
+function afterListLoaded(){
+  autoPostCk(); renderShare(); drawBPlaced();
+  $('repBtn').disabled = $('repAllBtn').disabled = false;
+  if (repMode) showReport(repMode);
+}
+
 renderInnSel();
-if (curInn()) applyInn(curInn()); else updateTarget();
+if (curInn()) applyInn(curInn()); else { updateTarget(); innChanged(); }
 </script>
 </body>
 </html>
