@@ -98,6 +98,7 @@
   .bnum.sel{background:#ffd54a;color:#5a4300}
   .bnum.up{background:var(--ok)}
   .bnum i{position:absolute;left:50%;top:50%;width:0;height:0;margin-left:-5px;margin-top:-23px;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:10px solid var(--accent);transform-origin:5px 23px}
+  .blurCv{width:100%;aspect-ratio:2/1;border-radius:6px;display:block;margin-top:8px;cursor:crosshair;background:#ddd}
   .bnum.sel i{border-bottom-color:#c89b00} .bnum.up i{border-bottom-color:var(--ok)}
   @media (max-width:600px){ .row{grid-template-columns:1fr} #map{height:320px} .share{grid-template-columns:1fr} }
 </style>
@@ -202,6 +203,8 @@
           <input type="text" id="rLblPlace" value="宿までの道">
           <label class="check"><input type="checkbox" class="enOn"> 英語も入れる</label>
           <input type="text" id="rLblEn" placeholder="例：Road to the Inn">
+          <label class="check"><input type="checkbox" class="nadOn"> 足元をぼかす（カメラを頭の上に持って撮ったときの、自分の姿を消す）</label>
+      <label>ぼかす範囲：真下から <b class="nadv">35</b>°（広げるほど広く消えます）</label><input type="range" class="nadDeg" min="20" max="60" step="5" value="35">
         </div>
         <div class="lblprev"><canvas id="rLblPrev" width="320" height="320"></canvas><div class="hint">足元を見たときの見え方</div></div>
       </div>
@@ -256,6 +259,17 @@
       <button id="bNext" class="ghost">次の写真 →</button>
       <button id="bUnplace" class="ghost">この写真の位置を消す</button>
     </div>
+    <div class="labelbox blurbox" id="bBlur" style="display:none">
+      <b>ぼかし（写り込んだ人・車のナンバーなど）</b>
+      <div class="hint">下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
+      <canvas class="blurCv" width="1200" height="600"></canvas>
+      <div class="row">
+        <div><label>次につけるぼかしの大きさ：<b class="bzv">8</b>°</label><input type="range" class="bz" min="3" max="40" value="8"></div>
+        <div style="align-self:end"><button class="ghost bzClear">この写真のぼかしを全部消す</button></div>
+      </div>
+      <label class="check" title="全部の写真に共通"><input type="checkbox" class="nadOn"> 足元をぼかす（カメラを頭の上に持って撮ったときの、自分の姿を消す・全部の写真に共通）</label>
+      <label>ぼかす範囲：真下から <b class="nadv">35</b>°（広げるほど広く消えます）</label><input type="range" class="nadDeg" min="20" max="60" step="5" value="35">
+    </div>
   </section>
 
   <section class="card">
@@ -283,6 +297,17 @@
     <img id="preview" alt="">
     <div class="hint">Insta360アプリで「360度写真」として書き出した横長（2:1）のJPGを選んでください。</div>
     <div id="fileInfo" class="status"></div>
+    <div class="labelbox blurbox" id="sBlur" style="display:none">
+      <b>ぼかし（写り込んだ人・車のナンバーなど）</b>
+      <div class="hint">下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
+      <canvas class="blurCv" width="1200" height="600"></canvas>
+      <div class="row">
+        <div><label>次につけるぼかしの大きさ：<b class="bzv">8</b>°</label><input type="range" class="bz" min="3" max="40" value="8"></div>
+        <div style="align-self:end"><button class="ghost bzClear">この写真のぼかしを全部消す</button></div>
+      </div>
+      <label class="check"><input type="checkbox" class="nadOn"> 足元をぼかす（カメラを頭の上に持って撮ったときの、自分の姿を消す）</label>
+      <label>ぼかす範囲：真下から <b class="nadv">35</b>°（広げるほど広く消えます）</label><input type="range" class="nadDeg" min="20" max="60" step="5" value="35">
+    </div>
   </section>
 
   <section class="card">
@@ -642,9 +667,10 @@ $('uploadBtn').onclick = async () => {
     const { uploadUrl } = await api('/photo:startUpload', {method:'POST', body:'{}'});
 
     let body = file;
-    if ($('lblOn').checked && labelText('lblInn', 'lblPlace').some(Boolean)){
-      st.textContent = '2/3 足元にラベルを入れています…';
-      body = await labelImage(file, ...labelText('lblInn', 'lblPlace'));
+    const lt = labelText('lblInn', 'lblPlace'), lbl = $('lblOn').checked && (lt[0] || lt[1]) ? lt : null;
+    if (lbl || sBlurs.length || nadDeg()){
+      st.textContent = '2/3 写真を加工しています（ラベル・ぼかし）…';
+      body = await labelImage(file, lbl, sBlurs, nadDeg());
     }
     st.textContent = '2/3 写真を送信中…';
     const up = await fetch(uploadUrl, {method:'POST', headers:{'Authorization':'Bearer ' + token, 'Content-Type':'image/jpeg'}, body});
@@ -671,6 +697,7 @@ $('uploadBtn').onclick = async () => {
     st.className = 'status ok';
     st.textContent = msg;
     $('file').value = ''; file = null; $('preview').style.display = 'none'; $('fileInfo').textContent = '';
+    sBlurs = []; sBlurEd.refresh();
     loadList();
   }catch(e){
     st.className = 'status err';
@@ -1023,7 +1050,8 @@ $('roadUploadBtn').onclick = async () => {
     try{
       const { uploadUrl } = await api('/photo:startUpload', {method:'POST', body:'{}'});
       let body = r.file;
-      if ($('rLblOn').checked && labelText('rLblInn', 'rLblPlace').some(Boolean)) body = await labelImage(r.file, ...labelText('rLblInn', 'rLblPlace'));
+      { const lt = labelText('rLblInn', 'rLblPlace'), lbl = $('rLblOn').checked && (lt[0] || lt[1]) ? lt : null;
+        if (lbl || nadDeg()) body = await labelImage(r.file, lbl, [], nadDeg()); }
       const up = await fetch(uploadUrl, {method:'POST', headers:{'Authorization':'Bearer ' + token, 'Content-Type':'image/jpeg'}, body});
       if (!up.ok) throw new Error('写真の送信に失敗（HTTP ' + up.status + '）');
       const res = await api('/photo', {method:'POST', body:JSON.stringify({
@@ -1120,11 +1148,17 @@ function addXmp(buf, w, h){
   out.set(src.subarray(0, 2)); out.set(seg, 2); out.set(src.subarray(2), 2 + seg.length);
   return new Blob([out], {type:'image/jpeg'});
 }
-async function labelImage(file, inn, place, en){
+async function labelImage(file, lbl, blurs, nad){
   const bmp = await createImageBitmap(file);
   const W = bmp.width, H = bmp.height;
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const g = cv.getContext('2d'); g.drawImage(bmp, 0, 0); bmp.close && bmp.close();
+  applyBlurs(g, W, H, blurs || [], nad || 0);
+  if (!lbl){
+    const b0 = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.92));
+    return addXmp(await b0.arrayBuffer(), W, H);
+  }
+  const [inn, place, en] = lbl;
   const PS = 1600, patch = drawPatch(PS, inn, place, en).getContext('2d').getImageData(0, 0, PS, PS).data;
   const a = LBL_ANGLE * Math.PI / 180, Rp = Math.tan(a), y0 = Math.floor(H * (1 - LBL_ANGLE / 180)) - 2;
   const band = g.getImageData(0, y0, W, H - y0), d = band.data, half = PS / 2;
@@ -1606,6 +1640,137 @@ function bindPlanUI(u){
 function loadPlan(){ plan.d = jget(planKey(), null); planLayers.forEach(l => l.render()); renderPlanUI(); }
 PlanLayer(map);
 
+
+/* ---------- ぼかし ---------- */
+/* blurs: [{lon, lat, r}]（度）。nad：真下から何度までぼかすか（0でなし） */
+const BLUR_SPOT = 2.2, BLUR_NAD = 4;   // ぼかしの強さ（角度）
+function boxH(src, dst, W, h, rows, rad){   // 横方向（左右はつながっている）
+  const pre = new Float64Array(W + 1);
+  for (let yy = 0; yy < h; yy++){
+    const r = Math.max(1, Math.round(rad(yy))), o = yy * W * 4;
+    for (let c = 0; c < 3; c++){
+      if (2 * r + 1 >= W){
+        let t = 0; for (let x = 0; x < W; x++) t += src[o + x * 4 + c];
+        t /= W; for (let x = 0; x < W; x++) dst[o + x * 4 + c] = t; continue;
+      }
+      pre[0] = 0; for (let x = 0; x < W; x++) pre[x + 1] = pre[x] + src[o + x * 4 + c];
+      const T = pre[W], n = 2 * r + 1;
+      for (let x = 0; x < W; x++){
+        const a = x - r, b = x + r; let t;
+        if (a < 0) t = T - pre[W + a] + pre[b + 1];
+        else if (b >= W) t = T - pre[a] + pre[b - W + 1];
+        else t = pre[b + 1] - pre[a];
+        dst[o + x * 4 + c] = t / n;
+      }
+    }
+  }
+}
+function boxV(src, dst, W, h, r){            // 縦方向
+  const pre = new Float64Array(h + 1);
+  for (let x = 0; x < W; x++) for (let c = 0; c < 3; c++){
+    pre[0] = 0; for (let y = 0; y < h; y++) pre[y + 1] = pre[y] + src[(y * W + x) * 4 + c];
+    for (let y = 0; y < h; y++){
+      const a = Math.max(0, y - r), b = Math.min(h - 1, y + r);
+      dst[(y * W + x) * 4 + c] = (pre[b + 1] - pre[a]) / (b - a + 1);
+    }
+  }
+}
+function applyBlurs(g, W, H, blurs, nad){
+  const D = Math.PI / 180, regions = [];
+  blurs.forEach(b => regions.push({lat0:b.lat * D, lon0:b.lon * D, r:b.r * D, s:BLUR_SPOT * D}));
+  if (nad) regions.push({nad:true, r:nad * D, s:BLUR_NAD * D});
+  regions.forEach(R => {
+    const feather = Math.min(1.5 * D, R.r * 0.3);
+    const latTop = R.nad ? -Math.PI / 2 + R.r : Math.min(Math.PI / 2, R.lat0 + R.r);
+    const latBot = R.nad ? -Math.PI / 2 : Math.max(-Math.PI / 2, R.lat0 - R.r);
+    const m = Math.ceil(R.s / Math.PI * H * 2);   // ぼかしのにじみ分の余白
+    const y0 = Math.max(0, Math.floor((Math.PI / 2 - latTop) / Math.PI * H) - m);
+    const y1 = Math.min(H, Math.ceil((Math.PI / 2 - latBot) / Math.PI * H) + m);
+    const h = y1 - y0; if (h <= 0) return;
+    const img = g.getImageData(0, y0, W, h), d = img.data;
+    const t1 = new Float32Array(d.length), t2 = new Float32Array(d.length);
+    for (let i = 0; i < d.length; i++) t1[i] = d[i];
+    const rv = Math.max(1, Math.round(R.s / Math.PI * H));
+    const rh = yy => { const lat = Math.PI / 2 - (y0 + yy + 0.5) / H * Math.PI; return R.s / (2 * Math.PI) * W / Math.max(0.02, Math.cos(lat)); };
+    for (let k = 0; k < 2; k++){ boxH(t1, t2, W, h, null, rh); boxV(t2, t1, W, h, rv); }
+    for (let yy = 0; yy < h; yy++){
+      const lat = Math.PI / 2 - (y0 + yy + 0.5) / H * Math.PI;
+      const sl = Math.sin(lat), cl = Math.cos(lat);
+      for (let x = 0; x < W; x++){
+        let dist;
+        if (R.nad) dist = lat + Math.PI / 2;
+        else {
+          const lon = (x + 0.5) / W * 2 * Math.PI - Math.PI;
+          dist = Math.acos(Math.max(-1, Math.min(1, sl * Math.sin(R.lat0) + cl * Math.cos(R.lat0) * Math.cos(lon - R.lon0))));
+        }
+        const w = Math.max(0, Math.min(1, (R.r - dist) / feather));
+        if (w <= 0) continue;
+        const o = (yy * W + x) * 4;
+        for (let c = 0; c < 3; c++) d[o + c] = d[o + c] * (1 - w) + t1[o + c] * w;
+      }
+    }
+    g.putImageData(img, 0, y0);
+  });
+}
+function nadDeg(){ const o = jget('svNad', {on:false, deg:35}); return o.on ? +o.deg : 0; }
+function syncNadUI(){
+  const o = jget('svNad', {on:false, deg:35});
+  document.querySelectorAll('.nadOn').forEach(c => c.checked = !!o.on);
+  document.querySelectorAll('.nadDeg').forEach(c => c.value = o.deg);
+  document.querySelectorAll('.nadv').forEach(c => c.textContent = o.deg);
+}
+document.querySelectorAll('.nadOn').forEach(c => c.addEventListener('change', () => {
+  const o = jget('svNad', {on:false, deg:35}); o.on = c.checked; jset('svNad', o); syncNadUI(); blurEds.forEach(e => e.refresh());
+}));
+document.querySelectorAll('.nadDeg').forEach(c => c.addEventListener('input', () => {
+  const o = jget('svNad', {on:false, deg:35}); o.deg = +c.value; o.on = true; jset('svNad', o); syncNadUI(); blurEds.forEach(e => e.refresh());
+}));
+syncNadUI();
+
+const blurEds = [];
+function makeBlurEditor(box, getSrc, getList){
+  const cv = box.querySelector('.blurCv'), g = cv.getContext('2d');
+  let img = null, src = '';
+  const ed = {refresh(){
+    const s = getSrc();
+    box.style.display = s ? '' : 'none';
+    if (!s) return;
+    if (s !== src){ src = s; img = new Image(); img.onload = draw; img.src = s; return; }
+    draw();
+  }};
+  function draw(){
+    if (!img || !img.complete || !img.naturalWidth) return;
+    const W = cv.width, H = cv.height, list = getList() || [];
+    g.drawImage(img, 0, 0, W, H);
+    applyBlurs(g, W, H, list, nadDeg());
+    g.save(); g.strokeStyle = '#ffd54a'; g.lineWidth = 2; g.setLineDash([6, 4]);
+    list.forEach(b => {
+      const x = (b.lon + 180) / 360 * W, y = (90 - b.lat) / 180 * H, ry = b.r / 180 * H;
+      const rx = Math.min(W / 2, b.r / 360 * W / Math.max(0.05, Math.cos(b.lat * Math.PI / 180)));
+      g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.stroke();
+    });
+    const n = nadDeg();
+    if (n){ const y = (180 - n) / 180 * H; g.beginPath(); g.moveTo(0, y); g.lineTo(W, y); g.stroke();
+      g.setLineDash([]); g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(8, y - 26, 150, 20); g.fillStyle = '#ffd54a'; g.font = 'bold 13px sans-serif'; g.fillText('足元のぼかし（ここから下）', 14, y - 11); }
+    g.restore();
+  }
+  cv.addEventListener('click', e => {
+    const list = getList(); if (!list) return;
+    const rc = cv.getBoundingClientRect(), u = (e.clientX - rc.left) / rc.width, v = (e.clientY - rc.top) / rc.height;
+    const lon = u * 360 - 180, lat = 90 - v * 180, D = Math.PI / 180;
+    const i = list.findIndex(b => Math.acos(Math.max(-1, Math.min(1, Math.sin(lat * D) * Math.sin(b.lat * D) + Math.cos(lat * D) * Math.cos(b.lat * D) * Math.cos((lon - b.lon) * D)))) / D < b.r);
+    if (i >= 0) list.splice(i, 1); else list.push({lon, lat, r:+box.querySelector('.bz').value});
+    draw();
+  });
+  box.querySelector('.bz').oninput = e => { box.querySelector('.bzv').textContent = e.target.value; };
+  box.querySelector('.bzClear').onclick = () => { const l = getList(); if (l) l.length = 0; draw(); };
+  blurEds.push(ed); return ed;
+}
+let sBlurs = [];
+const sBlurEd = makeBlurEditor($('sBlur'), () => (file && $('preview').src) || '', () => sBlurs);
+$('file').addEventListener('change', () => { sBlurs = []; sBlurEd.refresh(); });
+const bBlurEd = makeBlurEditor($('bBlur'), () => { const it = bItems[bCur]; return it && !it.uploaded ? it.url : ''; }, () => { const it = bItems[bCur]; return it ? it.blurs : null; });
+
 /* ---------- ⑤ 館内（まとめて） ---------- */
 let bMap = null, bItems = [], bCur = -1, bLine = null, bPlaced = null;
 function initBatchMap(){
@@ -1690,14 +1855,14 @@ function renderB(){
   const ready = bItems.length && bItems.every(x => x.pos), allUp = bItems.length && bItems.every(x => x.uploaded);
   $('bUploadBtn').disabled = !(token && ready && pid && !allUp);
   $('bUploadBtn').textContent = bItems.some(x => x.uploaded) && !allUp ? '失敗した写真だけもう一度アップロード' : `まとめてアップロードして公開${bItems.length ? `（${bItems.length}枚）` : ''}`;
-  renderBPrev();
+  renderBPrev(); bBlurEd.refresh();
 }
 $('bFiles').onchange = () => {
   bItems.forEach(it => { if (it.marker) bMap.removeLayer(it.marker); URL.revokeObjectURL(it.url); });
   const files = [...$('bFiles').files].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric:true}));
   const ln = +$('levelNum').value || 1, lname = $('levelName').value.trim() || ln + 'F';
   bItems = files.map(f => ({file:f, url:URL.createObjectURL(f), name:f.name, time:timeFromName(f), pos:null, marker:null,
-    heading:+$('bHeading').value || 0, place:'', en:'', enManual:false, lvlNum:ln, lvlName:lname, uploaded:null, error:null}));
+    heading:+$('bHeading').value || 0, place:'', en:'', enManual:false, blurs:[], lvlNum:ln, lvlName:lname, uploaded:null, error:null}));
   $('bStatus').textContent = '';
   bCur = bItems.length ? 0 : -1; loadBFields(); renderB();
 };
@@ -1732,7 +1897,8 @@ $('bUploadBtn').onclick = async () => {
     try{
       const { uploadUrl } = await api('/photo:startUpload', {method:'POST', body:'{}'});
       let body = it.file;
-      if ($('bLblOn').checked && (inn || it.place.trim())) body = await labelImage(it.file, inn, it.place.trim(), enOn() ? it.en.trim() : '');
+      { const lbl = $('bLblOn').checked && (inn || it.place.trim()) ? [inn, it.place.trim(), enOn() ? it.en.trim() : ''] : null;
+        if (lbl || it.blurs.length || nadDeg()) body = await labelImage(it.file, lbl, it.blurs, nadDeg()); }
       const up = await fetch(uploadUrl, {method:'POST', headers:{'Authorization':'Bearer ' + token, 'Content-Type':'image/jpeg'}, body});
       if (!up.ok) throw new Error('写真の送信に失敗（HTTP ' + up.status + '）');
       const level = {number:it.lvlNum, name:it.lvlName || (it.lvlNum + 'F')};
