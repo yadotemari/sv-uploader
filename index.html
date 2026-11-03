@@ -264,7 +264,12 @@
       <div class="hint">下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
       <canvas class="blurCv" width="1200" height="600"></canvas>
       <div class="row">
-        <div><label>次につけるぼかしの大きさ：<b class="bzv">8</b>°</label><input type="range" class="bz" min="3" max="40" value="8"></div>
+        <div><label>次につけるぼかしの形</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <label class="check" style="margin:0"><input type="radio" class="bzShape" value="round" checked> ● 丸（顔・ナンバー）</label>
+            <label class="check" style="margin:0"><input type="radio" class="bzShape" value="tall"> ⬮ 縦長（人の全身）</label>
+          </div>
+          <label>大きさ（縦の長さ）：<b class="bzv">14</b>°</label><input type="range" class="bz" min="4" max="90" value="14"></div>
         <div style="align-self:end"><button class="ghost bzClear">この写真のぼかしを全部消す</button></div>
       </div>
       <label class="check" title="全部の写真に共通"><input type="checkbox" class="nadOn"> 足元をぼかす（カメラを頭の上に持って撮ったときの、自分の姿を消す・全部の写真に共通）</label>
@@ -302,7 +307,12 @@
       <div class="hint">下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
       <canvas class="blurCv" width="1200" height="600"></canvas>
       <div class="row">
-        <div><label>次につけるぼかしの大きさ：<b class="bzv">8</b>°</label><input type="range" class="bz" min="3" max="40" value="8"></div>
+        <div><label>次につけるぼかしの形</label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap">
+            <label class="check" style="margin:0"><input type="radio" class="bzShape" value="round" checked> ● 丸（顔・ナンバー）</label>
+            <label class="check" style="margin:0"><input type="radio" class="bzShape" value="tall"> ⬮ 縦長（人の全身）</label>
+          </div>
+          <label>大きさ（縦の長さ）：<b class="bzv">14</b>°</label><input type="range" class="bz" min="4" max="90" value="14"></div>
         <div style="align-self:end"><button class="ghost bzClear">この写真のぼかしを全部消す</button></div>
       </div>
       <label class="check"><input type="checkbox" class="nadOn"> 足元をぼかす（カメラを頭の上に持って撮ったときの、自分の姿を消す）</label>
@@ -1677,7 +1687,7 @@ function boxV(src, dst, W, h, r){            // 縦方向
 }
 function applyBlurs(g, W, H, blurs, nad){
   const D = Math.PI / 180, regions = [];
-  blurs.forEach(b => regions.push({lat0:b.lat * D, lon0:b.lon * D, r:b.r * D, s:BLUR_SPOT * D}));
+  blurs.forEach(b => regions.push({lat0:b.lat * D, lon0:b.lon * D, r:b.r * D, ax:b.ax || 1, s:BLUR_SPOT * D}));
   if (nad) regions.push({nad:true, r:nad * D, s:BLUR_NAD * D});
   regions.forEach(R => {
     const feather = Math.min(1.5 * D, R.r * 0.3);
@@ -1697,13 +1707,13 @@ function applyBlurs(g, W, H, blurs, nad){
       const lat = Math.PI / 2 - (y0 + yy + 0.5) / H * Math.PI;
       const sl = Math.sin(lat), cl = Math.cos(lat);
       for (let x = 0; x < W; x++){
-        let dist;
-        if (R.nad) dist = lat + Math.PI / 2;
+        let w;
+        if (R.nad) w = (R.r - (lat + Math.PI / 2)) / feather;
         else {
           const lon = (x + 0.5) / W * 2 * Math.PI - Math.PI;
-          dist = Math.acos(Math.max(-1, Math.min(1, sl * Math.sin(R.lat0) + cl * Math.cos(R.lat0) * Math.cos(lon - R.lon0))));
+          w = (1 - ellQ(lat, lon, R.lat0, R.lon0, R.r, R.ax)) * R.r / feather;
         }
-        const w = Math.max(0, Math.min(1, (R.r - dist) / feather));
+        w = Math.max(0, Math.min(1, w));
         if (w <= 0) continue;
         const o = (yy * W + x) * 4;
         for (let c = 0; c < 3; c++) d[o + c] = d[o + c] * (1 - w) + t1[o + c] * w;
@@ -1711,6 +1721,15 @@ function applyBlurs(g, W, H, blurs, nad){
     }
     g.putImageData(img, 0, y0);
   });
+}
+/* 中心からの「楕円の中での距離」（1で縁）。ax＝横÷縦（1で丸、小さいほど縦長） */
+function ellQ(lat, lon, lat0, lon0, r, ax){
+  const dl = lon - lon0, cl = Math.cos(lat);
+  const east = cl * Math.sin(dl), north = Math.cos(lat0) * Math.sin(lat) - Math.sin(lat0) * cl * Math.cos(dl);
+  const c = Math.sin(lat0) * Math.sin(lat) + Math.cos(lat0) * cl * Math.cos(dl);
+  const d = Math.acos(Math.max(-1, Math.min(1, c))), th = Math.atan2(east, north);
+  const e = d * Math.sin(th) / (r * ax), n = d * Math.cos(th) / r;
+  return Math.sqrt(e * e + n * n);
 }
 function nadDeg(){ const o = jget('svNad', {on:false, deg:35}); return o.on ? +o.deg : 0; }
 function syncNadUI(){
@@ -1746,7 +1765,7 @@ function makeBlurEditor(box, getSrc, getList){
     g.save(); g.strokeStyle = '#ffd54a'; g.lineWidth = 2; g.setLineDash([6, 4]);
     list.forEach(b => {
       const x = (b.lon + 180) / 360 * W, y = (90 - b.lat) / 180 * H, ry = b.r / 180 * H;
-      const rx = Math.min(W / 2, b.r / 360 * W / Math.max(0.05, Math.cos(b.lat * Math.PI / 180)));
+      const rx = Math.min(W / 2, b.r * (b.ax || 1) / 360 * W / Math.max(0.05, Math.cos(b.lat * Math.PI / 180)));
       g.beginPath(); g.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); g.stroke();
     });
     const n = nadDeg();
@@ -1758,11 +1777,18 @@ function makeBlurEditor(box, getSrc, getList){
     const list = getList(); if (!list) return;
     const rc = cv.getBoundingClientRect(), u = (e.clientX - rc.left) / rc.width, v = (e.clientY - rc.top) / rc.height;
     const lon = u * 360 - 180, lat = 90 - v * 180, D = Math.PI / 180;
-    const i = list.findIndex(b => Math.acos(Math.max(-1, Math.min(1, Math.sin(lat * D) * Math.sin(b.lat * D) + Math.cos(lat * D) * Math.cos(b.lat * D) * Math.cos((lon - b.lon) * D)))) / D < b.r);
-    if (i >= 0) list.splice(i, 1); else list.push({lon, lat, r:+box.querySelector('.bz').value});
+    const i = list.findIndex(b => ellQ(lat * D, lon * D, b.lat * D, b.lon * D, b.r * D, b.ax || 1) < 1);
+    const tall = box.querySelector('.bzShape:checked') && box.querySelector('.bzShape:checked').value === 'tall';
+    if (i >= 0) list.splice(i, 1); else list.push({lon, lat, r:+box.querySelector('.bz').value / 2, ax:tall ? 0.4 : 1});
     draw();
   });
   box.querySelector('.bz').oninput = e => { box.querySelector('.bzv').textContent = e.target.value; };
+  box.querySelectorAll('.bzShape').forEach(r => {
+    r.name = box.id + 'Shape';
+    r.onchange = () => { const z = box.querySelector('.bz');
+      if (r.value === 'tall' && +z.value < 30) z.value = 40; if (r.value === 'round' && +z.value > 30) z.value = 14;
+      box.querySelector('.bzv').textContent = z.value; };
+  });
   box.querySelector('.bzClear').onclick = () => { const l = getList(); if (l) l.length = 0; draw(); };
   blurEds.push(ed); return ed;
 }
