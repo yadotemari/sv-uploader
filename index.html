@@ -425,17 +425,44 @@ function initAuth(){
     client_id: id, scope: SCOPE,
     callback: (r) => {
       if (r.error) { alert('ログインに失敗しました: ' + r.error); return; }
-      token = r.access_token;
-      $('who').textContent = 'ログイン中';
-      $('loginBtn').textContent = '再ログイン';
-      $('refreshBtn').disabled = false;
-      updateUploadBtn(); loadList(); if (roadLine) renderRoad();
+      const exp = Date.now() + ((+r.expires_in || 3600) - 60) * 1000;
+      store.set('svTok', JSON.stringify({t:r.access_token, exp})); store.set('svEver', '1');
+      onLogin(r.access_token, exp);
     }
   });
   $('loginBtn').disabled = false;
 }
+/* ---------- ログインの維持（Googleの決まりで1回のログインは約1時間有効） ---------- */
+let tokenExp = 0, tokenTimer = null;
+function onLogin(t, exp){
+  token = t; tokenExp = exp;
+  $('loginBtn').textContent = '再ログイン';
+  $('refreshBtn').disabled = false;
+  showLoginState();
+  clearInterval(tokenTimer); tokenTimer = setInterval(showLoginState, 30000);
+  updateUploadBtn(); loadList(); if (roadLine) renderRoad(); if (typeof renderB === 'function' && bItems.length) renderB();
+}
+function showLoginState(){
+  if (!token) return;
+  const min = Math.floor((tokenExp - Date.now()) / 60000);
+  if (min < 0){ loginExpired(); return; }
+  $('who').textContent = `ログイン中（あと${min}分）`;
+  $('who').style.color = min < 10 ? 'var(--warn)' : '';
+}
+function loginExpired(){
+  token = null; clearInterval(tokenTimer); store.set('svTok', '');
+  $('who').textContent = 'ログインの期限が切れました → 右のボタンを押してください'; $('who').style.color = 'var(--warn)';
+  $('loginBtn').textContent = 'Googleでログイン';
+  updateUploadBtn(); if (typeof updateLinkBtn === 'function') updateLinkBtn(); if (roadLine) renderRoad(); if (typeof renderB === 'function' && bItems.length) renderB();
+}
+function restoreLogin(){
+  try{
+    const o = JSON.parse(store.get('svTok') || 'null');
+    if (o && o.t && o.exp > Date.now() + 60000) onLogin(o.t, o.exp);
+  }catch(e){}
+}
 window.addEventListener('load', () => { const t = setInterval(() => { if (window.google && google.accounts){ clearInterval(t); initAuth(); } }, 200); });
-$('loginBtn').onclick = () => tokenClient && tokenClient.requestAccessToken({prompt: token ? '' : 'consent'});
+$('loginBtn').onclick = () => tokenClient && tokenClient.requestAccessToken({prompt: (token || store.get('svEver')) ? '' : 'consent'});
 
 /* ---------- 地図 ---------- */
 const map = L.map('map', {maxZoom:23, zoomSnap:0.5}).setView([34.36, 136.85], 16);
@@ -602,6 +629,7 @@ async function api(path, opt = {}){
   const r = await fetch(API + path, {...opt, headers:{'Authorization':'Bearer ' + token, 'Content-Type':'application/json', ...(opt.headers||{})}});
   const text = await r.text();
   const body = text ? JSON.parse(text) : {};
+  if (r.status === 401){ loginExpired(); throw new Error('ログインの期限が切れました。右上の「Googleでログイン」を押してから、もう一度お試しください。'); }
   if (!r.ok) throw new Error((body.error && body.error.message) || ('HTTP ' + r.status));
   return body;
 }
@@ -1745,6 +1773,7 @@ function afterListLoaded(){
 
 renderInnSel();
 if (curInn()) applyInn(curInn()); else { updateTarget(); innChanged(); }
+restoreLogin();
 </script>
 </body>
 </html>
