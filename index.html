@@ -78,6 +78,16 @@
   .ord{min-height:18px;font-size:13px;font-weight:bold;color:var(--accent)}
   .item .btns{display:flex;flex-direction:column;gap:6px}
   .item .btns button{padding:6px 12px;font-size:13px}
+  .item .diag{grid-column:1/-1;font-size:13px;background:var(--bg,#faf7f2);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+  .item .diag summary{cursor:pointer;color:var(--sub)}
+  .diag table{width:100%;border-collapse:collapse;margin-top:6px}
+  .diag th{text-align:left;font-weight:normal;color:var(--sub);width:10.5em;vertical-align:top;padding:4px 6px 4px 0}
+  .diag td{padding:4px 0;word-break:break-all}
+  .diag tr+tr th,.diag tr+tr td{border-top:1px dashed var(--line)}
+  .pill{display:inline-block;border-radius:999px;padding:0 8px;font-size:12px;font-weight:bold;border:1px solid currentColor}
+  .pill.ok{color:var(--ok)} .pill.ng{color:var(--warn)} .pill.wait{color:var(--sub)}
+  .diag .row2{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:6px}
+  .diag select{width:auto;padding:4px 8px;font-size:13px}
   .cklist{display:grid;grid-template-columns:1fr auto auto;gap:4px 12px;align-items:center;margin-top:8px;font-size:14px}
   .cklist .h{font-size:12px;color:var(--sub)}
   .cklist input[type=checkbox]{width:18px;height:18px}
@@ -369,7 +379,8 @@
     <label for="placeId">宿のプレイスID</label>
     <input type="text" id="placeId" placeholder="ChIJ...">
     <div class="hint"><a href="https://developers.google.com/maps/documentation/places/web-service/place-id" target="_blank" rel="noopener">プレイスIDファインダー</a>で宿名を検索してコピーしてください。宿ごとに保存されます。</div>
-    <label class="check"><input type="checkbox" id="noPlace"> 宿とひもづけない（道路・駐車場など、宿の外の写真）</label>
+    <label class="check"><input type="checkbox" id="noPlace"> 宿とひもづけない（位置だけ登録する。道路・駐車場など宿の外の写真や、青い点の出方を試す実験用）</label>
+    <div class="hint">ひもづけは公開後に④の「Googleに登録されている内容」から、写真を消さずに付けたり外したりできます。</div>
     <div class="labelbox">
       <label class="check" style="margin-top:0"><input type="checkbox" id="lblOn" checked> 足元に場所のラベルを入れる</label>
       <div class="lblgrid">
@@ -758,7 +769,7 @@ async function loadList(){
       nm.onclick = () => { const v = prompt('この写真の場所名（例：211号室・窓際）', photoName(p.photoId.id)); if (v != null){ const o = jget('svNames', {}); if (v.trim()) o[p.photoId.id] = v.trim(); else delete o[p.photoId.id]; jset('svNames', o); loadList(); } };
       const btns = document.createElement('div'); btns.className = 'btns';
       btns.appendChild(edit); btns.appendChild(nm); btns.appendChild(del);
-      el.appendChild(btns); box.appendChild(el);
+      el.appendChild(btns); el.appendChild(diagPanel(p, byId)); box.appendChild(el);
       if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).bindTooltip(photoName(p.photoId.id) || '').addTo(placed);
     });
     box.querySelectorAll('.linkChk').forEach(c => c.addEventListener('change', updateLinkBtn));
@@ -766,6 +777,58 @@ async function loadList(){
   }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
 }
 $('refreshBtn').onclick = loadList;
+
+/* ---------- 写真ごとの登録内容（APIから読んだまま）と実験の記録 ---------- */
+const DOT_JA = {'':'まだ確認していない', yes:'青い点が出た（その位置に）', pin:'お宿さまのピンにまとまって出た', no:'出ていない'};
+function diagPanel(p, byId){
+  const id = p.photoId.id, ll = p.pose && p.pose.latLngPair, pose = p.pose || {};
+  const pl = (p.places || [])[0], c = curInn();
+  const pub = p.mapsPublishStatus === 'PUBLISHED' ? '<span class="pill ok">公開中（PUBLISHED）</span>'
+    : p.mapsPublishStatus === 'REJECTED_UNKNOWN' ? '<span class="pill ng">却下（REJECTED_UNKNOWN）</span>'
+    : '<span class="pill wait">審査中・処理中（' + esc(p.mapsPublishStatus || '未設定') + '）</span>';
+  const conns = (p.connections || []).map(cn => {
+    const tid = cn.target && cn.target.id, q = byId[tid];
+    const back = q && (q.connections || []).some(x => x.target && x.target.id === id);
+    const nm = q ? (photoName(tid) || '名前なしの写真') : '（一覧にない写真）';
+    return `${esc(nm)} ${back ? '<span class="pill ok">行き来できる</span>' : '<span class="pill ng">片方向だけ</span>'}`;
+  });
+  const log = jget('svDotLog', {})[id] || {v:'', d:''};
+  const gm = ll ? `https://www.google.com/maps/@${ll.latitude},${ll.longitude},21z/data=!3m1!1e3` : '';
+  const d = document.createElement('details'); d.className = 'diag';
+  d.innerHTML = `<summary>Googleに登録されている内容　${pub}　${pl ? '施設：' + esc(pl.name || pl.placeId) : '<b>施設にひもづけなし</b>'}　${log.v ? '／ 青い点：' + DOT_JA[log.v] : ''}</summary>
+    <table>
+      <tr><th>① 公開状態</th><td>${pub}<div class="hint">Googleが写真を受け付けて公開したかどうかです。地図に点が出るかどうかとは別です。</div></td></tr>
+      <tr><th>位置（latLngPair）</th><td>${ll ? ll.latitude.toFixed(7) + ', ' + ll.longitude.toFixed(7) : '<span class="pill ng">なし</span>'}</td></tr>
+      <tr><th>向き（heading）</th><td>${pose.heading != null ? Math.round(pose.heading) + '°' : 'なし'}</td></tr>
+      <tr><th>階（level）</th><td>${pose.level ? esc(pose.level.name) + '（' + (pose.level.number || 0) + '）' : 'なし'}</td></tr>
+      <tr><th>施設（places）</th><td>${pl ? esc(pl.name || '') + '<br><small>' + esc(pl.placeId) + '</small>' : 'ひもづけなし'}
+        <div class="row2 plbtns"></div></td></tr>
+      <tr><th>つながり（connections）</th><td>${conns.length ? conns.join('<br>') : 'なし'}</td></tr>
+      <tr><th>② 地図の青い点<br><small>（目で見て記録）</small></th><td>
+        ${gm ? `<a href="${gm}" target="_blank" rel="noopener">この位置をGoogleマップの航空写真で開く</a>` : ''}
+        <div class="hint">開いたら右下の人形マークにマウスを乗せ（スマホは「レイヤ」→「ストリートビュー」）、青い点が出るか見ます。</div>
+        <div class="row2"><select class="dotSel">${Object.entries(DOT_JA).map(([k, v]) => `<option value="${k}" ${log.v === k ? 'selected' : ''}>${v}</option>`).join('')}</select>
+        <span class="hint">${log.d ? log.d + ' に記録' : ''}</span></div></td></tr>
+      <tr><th>写真ID</th><td><small>${esc(id)}</small></td></tr>
+    </table>`;
+  d.querySelector('.dotSel').onchange = e => {
+    const o = jget('svDotLog', {}); o[id] = {v:e.target.value, d:ymd(new Date())}; jset('svDotLog', o);
+    d.querySelector('.dotSel').nextElementSibling.textContent = ymd(new Date()) + ' に記録';
+  };
+  const pb = d.querySelector('.plbtns');
+  const mk = (label, places, cls) => { const b = document.createElement('button'); b.className = cls || 'ghost'; b.textContent = label;
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = '変更中…';
+      try{
+        await api('/photo/' + encodeURIComponent(id) + '?updateMask=places', {method:'PUT', body:JSON.stringify({photoId:{id}, places})});
+        loadList();
+      }catch(e){ alert('ひもづけの変更に失敗しました：' + e.message); b.disabled = false; b.textContent = label; }
+    }; pb.appendChild(b); };
+  if (pl) mk('施設とのひもづけを外す（写真は消さない）', []);
+  if (c && c.placeId && (!pl || pl.placeId !== c.placeId)) mk(`「${c.name}」にひもづける`, [{placeId:c.placeId}]);
+  return d;
+}
+
 $('onlyInn').checked = store.get('svOnlyInn') !== '0';
 $('onlyInn').onchange = () => { store.set('svOnlyInn', $('onlyInn').checked ? '1' : '0'); loadList(); };
 
