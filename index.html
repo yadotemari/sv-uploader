@@ -340,6 +340,9 @@
       <div>
         <label>緯度 / 経度</label>
         <input type="text" id="latlng" readonly placeholder="地図をタップ">
+        <label for="gPaste">Googleマップの座標を貼り付けて決める</label>
+        <div style="display:flex;gap:8px"><input type="text" id="gPaste" placeholder="例：34.368070, 136.861990"><button id="gPasteBtn" class="ghost">この座標にする</button></div>
+        <div class="hint">Googleマップ（パソコン）で航空写真にし、撮った場所を右クリック → 一番上の数字を押すとコピーされます。それをここに貼ると、Googleの航空写真とぴったり同じ位置になります（このツールの航空写真はGoogleと数メートルずれることがあります）。</div>
       </div>
       <div>
         <label for="heading">向き（写真の中心が向く方角）：<b id="headingVal">0</b>°</label>
@@ -430,6 +433,16 @@
         <button id="linkNone" class="ghost" disabled>チェックを全部外す</button>
       </div>
       <div id="linkStatus" class="status"></div>
+    </div>
+    <div class="labelbox" style="margin-top:10px">
+      <b>チェックした写真の位置をまとめてずらす</b>
+      <div class="hint">Googleマップで青い点が建物の外など、少しずれて見えるときに使います。1枚を「修正」でGoogleの座標に合わせると、動かした距離がここに自動で入るので、残りの写真にも同じだけ当てはめられます。向き・つながり・ひもづけは変わりません。</div>
+      <div class="row">
+        <div><label for="shN">北へ（南はマイナス）</label><div style="display:flex;gap:6px;align-items:center"><input type="number" id="shN" value="0" step="0.5"> m</div></div>
+        <div><label for="shE">東へ（西はマイナス）</label><div style="display:flex;gap:6px;align-items:center"><input type="number" id="shE" value="0" step="0.5"> m</div></div>
+      </div>
+      <div style="margin-top:8px"><button id="shiftBtn" class="ghost" disabled>チェックした写真をずらして保存</button></div>
+      <div id="shiftStatus" class="status"></div>
     </div>
     <div id="list" class="list" style="margin-top:10px"></div>
   </section>
@@ -661,9 +674,17 @@ $('saveEditBtn').onclick = async () => {
   $('saveEditBtn').disabled = true;
   try{
     const id = editing.photoId.id;
+    const before = editing.pose && editing.pose.latLngPair;
     await api('/photo/' + encodeURIComponent(id) + '?updateMask=pose.heading,pose.lat_lng_pair,pose.level',
       {method:'PUT', body: JSON.stringify({ photoId:{ id }, pose: buildPose() })});
     st.className = 'status ok'; st.textContent = '位置・向きを保存しました。Googleマップへの反映には時間がかかることがあります。';
+    if (before && pos){
+      const n = (pos.lat - before.latitude) * 111320, e = (pos.lng - before.longitude) * 111320 * Math.cos(pos.lat * Math.PI / 180);
+      if (Math.hypot(n, e) >= 0.3){
+        $('shN').value = n.toFixed(1); $('shE').value = e.toFixed(1);
+        st.textContent += `\n位置は ${n >= 0 ? '北' : '南'}へ${Math.abs(n).toFixed(1)}m・${e >= 0 ? '東' : '西'}へ${Math.abs(e).toFixed(1)}m 動きました。ほかの写真も同じだけ動かすなら、④の「位置をまとめてずらす」に同じ数字が入っています。`;
+      }
+    }
     stopEdit(); loadList();
   }catch(e){
     st.className = 'status err'; st.textContent = 'エラー：' + e.message;
@@ -773,10 +794,41 @@ async function loadList(){
       if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).bindTooltip(photoName(p.photoId.id) || '').addTo(placed);
     });
     box.querySelectorAll('.linkChk').forEach(c => c.addEventListener('change', updateLinkBtn));
-    updateLinkBtn();
+    updateLinkBtn(); updateShiftBtn();
   }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
 }
 $('refreshBtn').onclick = loadList;
+
+/* ---------- Googleの座標を貼り付け・まとめてずらす ---------- */
+$('gPasteBtn').onclick = () => {
+  const m = $('gPaste').value.match(/(-?\d{1,3}\.\d+)\s*[,、\s]\s*(-?\d{1,3}\.\d+)/);
+  if (!m){ alert('「34.368070, 136.861990」のような数字を貼り付けてください。'); return; }
+  const ll = L.latLng(+m[1], +m[2]);
+  setPos(ll); map.setView(ll, Math.max(map.getZoom(), 21));
+};
+$('gPaste').addEventListener('keydown', e => { if (e.key === 'Enter') $('gPasteBtn').click(); });
+function updateShiftBtn(){ $('shiftBtn').disabled = !(token && checkedIds().length && (+$('shN').value || +$('shE').value)); }
+['shN', 'shE'].forEach(id => $(id).addEventListener('input', updateShiftBtn));
+document.addEventListener('change', e => { if (e.target.classList && e.target.classList.contains('linkChk')) updateShiftBtn(); });
+$('shiftBtn').onclick = async () => {
+  const ids = checkedIds(), n = +$('shN').value || 0, e = +$('shE').value || 0, st = $('shiftStatus');
+  if (!ids.length) return;
+  st.className = 'status'; $('shiftBtn').disabled = true;
+  let ng = 0;
+  for (const [i, id] of ids.entries()){
+    const p = listPhotos.find(x => x.photoId.id === id), ll = p && p.pose && p.pose.latLngPair;
+    if (!ll){ ng++; continue; }
+    st.textContent = `${i + 1} / ${ids.length} 枚目を保存中…`;
+    const lat = ll.latitude + n / 111320, lng = ll.longitude + e / (111320 * Math.cos(ll.latitude * Math.PI / 180));
+    try{
+      await api('/photo/' + encodeURIComponent(id) + '?updateMask=pose.lat_lng_pair', {method:'PUT', body:JSON.stringify({photoId:{id}, pose:{latLngPair:{latitude:lat, longitude:lng}}})});
+    }catch(err){ ng++; }
+  }
+  st.className = 'status ' + (ng ? 'err' : 'ok');
+  st.textContent = `${ids.length - ng}枚を ${n >= 0 ? '北' : '南'}へ${Math.abs(n)}m・${e >= 0 ? '東' : '西'}へ${Math.abs(e)}m ずらしました。` + (ng ? `${ng}枚は失敗しました。` : '') + 'Googleマップへの反映には時間がかかることがあります。';
+  $('shN').value = 0; $('shE').value = 0;
+  loadList();
+};
 
 /* ---------- 写真ごとの登録内容（APIから読んだまま）と実験の記録 ---------- */
 const DOT_JA = {'':'まだ確認していない', yes:'青い点が出た（その位置に）', pin:'お宿さまのピンにまとまって出た', no:'出ていない'};
@@ -857,6 +909,7 @@ async function fixPendingLevels(photos){
 let listPhotos = [], checkOrder = [];
 function checkedIds(){ return checkOrder.filter(id => { const c = document.querySelector(`.linkChk[value="${CSS.escape(id)}"]`); return c && c.checked; }); }
 function updateLinkBtn(){
+  if (typeof updateShiftBtn === 'function') try{ updateShiftBtn(); }catch(e){}
   // チェックの順番を記録
   document.querySelectorAll('.linkChk').forEach(c => {
     const i = checkOrder.indexOf(c.value);
