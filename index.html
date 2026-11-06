@@ -156,6 +156,22 @@
       <div class="hint">登録内容はこのパソコンのブラウザに保存されます。別のパソコンでは登録し直してください。</div>
       <div id="innMsg" class="status"></div>
     </details>
+    <details id="calBox" style="margin-top:10px">
+      <summary>航空写真のずれをGoogleに合わせる<span id="calSum" class="hint"></span></summary>
+      <div class="hint">このツールの航空写真とGoogleの航空写真は、数メートルずれることがあります。お宿さまごとに1回合わせておけば、あとはこのツールの地図で置いた位置が、Googleの地図でも同じ場所になります。</div>
+      <ol class="hint" style="padding-left:1.4em;margin:8px 0">
+        <li>目印を決めます（建物の角、門、駐車場の白線の端など、上から見てはっきりわかる所）。</li>
+        <li>下のボタンを押してから、館内タブ②の地図でその目印をクリックします。</li>
+        <li>パソコンのGoogleマップ（航空写真）で同じ目印を右クリック → 一番上の数字を押してコピーし、下に貼り付けて「ずれを計算して保存」を押します。</li>
+      </ol>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="calStart" class="ghost">② の地図で目印をクリックする</button>
+        <button id="calClear" class="ghost">ずれ合わせを解除</button>
+      </div>
+      <label for="calG">Googleマップでの同じ目印の座標</label>
+      <div style="display:flex;gap:8px"><input type="text" id="calG" placeholder="例：34.368120, 136.861990"><button id="calSave" disabled>ずれを計算して保存</button></div>
+      <div id="calMsg" class="status"></div>
+    </details>
     <details id="ckBox" style="margin-top:10px">
       <summary>撮影チェックリスト（基本の10か所）<span id="ckSum" class="hint"></span></summary>
       <div class="hint">選んでいるお宿さまごとに保存されます。場所の名前は書き換えられます（例：「客室・窓際／縁側」→「客室・露天風呂」）。女湯は撮影しません。</div>
@@ -536,6 +552,12 @@ function arrowIcon(deg){
   return L.divIcon({className:'', iconSize:[16,22], iconAnchor:[8,15],
     html:`<div class="heading-arrow" style="transform:rotate(${deg}deg)"></div>`});
 }
+/* ---------- 航空写真のずれ補正（ツールの地図 ↔ Googleの座標） ---------- */
+function offs(){ const c = typeof curInn === 'function' ? curInn() : null; return jget('svOffset_' + (c ? c.id : '_'), null); }
+function toG(ll){ const o = offs(); if (!o) return L.latLng(ll.lat, ll.lng);
+  return L.latLng(ll.lat + o.n / 111320, ll.lng + o.e / (111320 * Math.cos(ll.lat * Math.PI / 180))); }
+function toM(lat, lng){ const o = offs(); if (!o) return L.latLng(lat, lng);
+  return L.latLng(lat - o.n / 111320, lng - o.e / (111320 * Math.cos(lat * Math.PI / 180))); }
 function setPos(latlng){
   pos = latlng;
   if (!marker){
@@ -543,10 +565,10 @@ function setPos(latlng){
     marker.on('dragend', e => setPos(e.target.getLatLng()));
   } else marker.setLatLng(latlng);
   if (map.getZoom() < 21) map.setView(latlng, 21);
-  $('latlng').value = latlng.lat.toFixed(7) + ', ' + latlng.lng.toFixed(7);
+  { const g = toG(latlng); $('latlng').value = g.lat.toFixed(7) + ', ' + g.lng.toFixed(7); }
   updateUploadBtn();
 }
-map.on('click', e => { if (aimStep === 2) return aimMapClick(e.latlng); setPos(e.latlng); });
+map.on('click', e => { if (aimStep === 2) return aimMapClick(e.latlng); if (calibStep === 1) return calibClick(e.latlng); setPos(e.latlng); });
 $('heading').oninput = () => { $('headingVal').textContent = $('heading').value; if (marker) marker.setIcon(arrowIcon(+$('heading').value)); drawAimMarks(); };
 
 /* ---------- 写真の目印で向きを合わせる ---------- */
@@ -639,7 +661,7 @@ function updateUploadBtn(){
 }
 function buildPose(){
   return {
-    latLngPair: { latitude: pos.lat, longitude: pos.lng },
+    latLngPair: { latitude: toG(pos).lat, longitude: toG(pos).lng },
     heading: +$('heading').value,
     level: { number: +$('levelNum').value, name: $('levelName').value.trim() || ($('levelNum').value + 'F') }
   };
@@ -648,7 +670,7 @@ function startEdit(p){
   setMode('indoor');
   editing = p;
   const pose = p.pose || {};
-  if (pose.latLngPair) setPos(L.latLng(pose.latLngPair.latitude, pose.latLngPair.longitude));
+  if (pose.latLngPair) setPos(toM(pose.latLngPair.latitude, pose.latLngPair.longitude));
   $('heading').value = Math.round(pose.heading || 0); $('heading').oninput();
   if (pose.level){ $('levelNum').value = pose.level.number || 0; $('levelName').value = pose.level.name || ''; }
   $('editBar').style.display = 'block';
@@ -679,7 +701,7 @@ $('saveEditBtn').onclick = async () => {
       {method:'PUT', body: JSON.stringify({ photoId:{ id }, pose: buildPose() })});
     st.className = 'status ok'; st.textContent = '位置・向きを保存しました。Googleマップへの反映には時間がかかることがあります。';
     if (before && pos){
-      const n = (pos.lat - before.latitude) * 111320, e = (pos.lng - before.longitude) * 111320 * Math.cos(pos.lat * Math.PI / 180);
+      const gp = toG(pos), n = (gp.lat - before.latitude) * 111320, e = (gp.lng - before.longitude) * 111320 * Math.cos(gp.lat * Math.PI / 180);
       if (Math.hypot(n, e) >= 0.3){
         $('shN').value = n.toFixed(1); $('shE').value = e.toFixed(1);
         st.textContent += `\n位置は ${n >= 0 ? '北' : '南'}へ${Math.abs(n).toFixed(1)}m・${e >= 0 ? '東' : '西'}へ${Math.abs(e).toFixed(1)}m 動きました。ほかの写真も同じだけ動かすなら、④の「位置をまとめてずらす」に同じ数字が入っています。`;
@@ -767,7 +789,7 @@ async function loadList(){
     shown.forEach(p => (p.connections || []).forEach(c => {
       const q = byId[c.target && c.target.id];
       if (q && p.pose && q.pose && p.photoId.id < q.photoId.id)
-        L.polyline([[p.pose.latLngPair.latitude, p.pose.latLngPair.longitude], [q.pose.latLngPair.latitude, q.pose.latLngPair.longitude]], {color:'#4f7a5a', weight:2, dashArray:'4 3'}).addTo(placed);
+        L.polyline([toM(p.pose.latLngPair.latitude, p.pose.latLngPair.longitude), toM(q.pose.latLngPair.latitude, q.pose.latLngPair.longitude)], {color:'#4f7a5a', weight:2, dashArray:'4 3'}).addTo(placed);
     }));
     shown.forEach(p => {
       const ll = p.pose && p.pose.latLngPair;
@@ -791,7 +813,7 @@ async function loadList(){
       const btns = document.createElement('div'); btns.className = 'btns';
       btns.appendChild(edit); btns.appendChild(nm); btns.appendChild(del);
       el.appendChild(btns); el.appendChild(diagPanel(p, byId)); box.appendChild(el);
-      if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:6, color:'#4f7a5a'}).bindTooltip(photoName(p.photoId.id) || '').addTo(placed);
+      if (ll) L.circleMarker(toM(ll.latitude, ll.longitude), {radius:6, color:'#4f7a5a'}).bindTooltip(photoName(p.photoId.id) || '').addTo(placed);
     });
     box.querySelectorAll('.linkChk').forEach(c => c.addEventListener('change', updateLinkBtn));
     updateLinkBtn(); updateShiftBtn();
@@ -799,12 +821,52 @@ async function loadList(){
 }
 $('refreshBtn').onclick = loadList;
 
+/* ---------- ずれ合わせ ---------- */
+let calibStep = 0, calibPt = null, calibMk = null;
+function calibText(){
+  const o = offs(), c = curInn();
+  $('calSum').textContent = o ? `　補正中：${o.n >= 0 ? '北' : '南'}へ${Math.abs(o.n).toFixed(1)}m・${o.e >= 0 ? '東' : '西'}へ${Math.abs(o.e).toFixed(1)}m` : '　（まだ合わせていません）';
+  if (!c) $('calSum').textContent += '　※お宿さまを選ぶと宿ごとに保存されます';
+}
+function calibClick(ll){
+  calibPt = ll; calibStep = 0;
+  if (calibMk) map.removeLayer(calibMk);
+  calibMk = L.circleMarker(ll, {radius:9, color:'#ffd54a', weight:3, fillOpacity:0}).addTo(map);
+  $('calMsg').className = 'status ok';
+  $('calMsg').textContent = '目印を記録しました（黄色の丸）。Googleマップで同じ目印の座標をコピーして、上に貼り付けてください。';
+  $('calSave').disabled = false;
+  $('calBox').open = true; $('calBox').scrollIntoView({behavior:'smooth', block:'center'});
+}
+$('calStart').onclick = () => {
+  setMode('indoor'); calibStep = 1;
+  $('calMsg').className = 'status'; $('calMsg').textContent = '館内タブ②の地図で、目印をクリックしてください（できるだけ拡大して）。';
+  document.getElementById('map').scrollIntoView({behavior:'smooth', block:'center'});
+};
+$('calSave').onclick = () => {
+  const m = $('calG').value.match(/(-?\d{1,3}\.\d+)\s*[,、\s]\s*(-?\d{1,3}\.\d+)/);
+  if (!calibPt || !m){ $('calMsg').className = 'status err'; $('calMsg').textContent = '先に地図で目印をクリックし、Googleマップの座標（例：34.368120, 136.861990）を貼り付けてください。'; return; }
+  const g = {lat:+m[1], lng:+m[2]};
+  const n = (g.lat - calibPt.lat) * 111320, e = (g.lng - calibPt.lng) * 111320 * Math.cos(g.lat * Math.PI / 180);
+  if (Math.hypot(n, e) > 100){ $('calMsg').className = 'status err'; $('calMsg').textContent = `ずれが${Math.round(Math.hypot(n, e))}mもあります。別の場所の座標を貼っていないか確かめてください。`; return; }
+  const c = curInn(); jset('svOffset_' + (c ? c.id : '_'), {n, e, d:ymd(new Date())});
+  if (calibMk){ map.removeLayer(calibMk); calibMk = null; }
+  calibPt = null; $('calSave').disabled = true; $('calG').value = '';
+  $('calMsg').className = 'status ok';
+  $('calMsg').textContent = `保存しました。これからは、この地図で置いた位置が Googleの座標（${n >= 0 ? '北' : '南'}へ${Math.abs(n).toFixed(1)}m・${e >= 0 ? '東' : '西'}へ${Math.abs(e).toFixed(1)}m 補正）で登録されます。`;
+  calibText(); refreshLatlng(); if (token) loadList();
+};
+$('calClear').onclick = () => {
+  const c = curInn(); try{ localStorage.removeItem('svOffset_' + (c ? c.id : '_')); }catch(e){}
+  $('calMsg').className = 'status'; $('calMsg').textContent = 'ずれ合わせを解除しました。';
+  calibText(); refreshLatlng(); if (token) loadList();
+};
+
 /* ---------- Googleの座標を貼り付け・まとめてずらす ---------- */
 $('gPasteBtn').onclick = () => {
   const m = $('gPaste').value.match(/(-?\d{1,3}\.\d+)\s*[,、\s]\s*(-?\d{1,3}\.\d+)/);
   if (!m){ alert('「34.368070, 136.861990」のような数字を貼り付けてください。'); return; }
   const ll = L.latLng(+m[1], +m[2]);
-  setPos(ll); map.setView(ll, Math.max(map.getZoom(), 21));
+  const m2 = toM(ll.lat, ll.lng); setPos(m2); map.setView(m2, Math.max(map.getZoom(), 21));
 };
 $('gPaste').addEventListener('keydown', e => { if (e.key === 'Enter') $('gPasteBtn').click(); });
 function updateShiftBtn(){ $('shiftBtn').disabled = !(token && checkedIds().length && (+$('shN').value || +$('shE').value)); }
@@ -1135,7 +1197,7 @@ $('roadFiles').onchange = async () => {
   road = files.map(f => ({file:f, url:URL.createObjectURL(f), name:f.name, time:timeFromName(f), pos:null, marker:null, uploaded:null, error:null}));
   $('roadStatus').textContent = '';
   let auto = 0;
-  for (const r of road){ const g = await exifGps(r.file); if (g){ placeRoad(r, g, true); auto++; } }
+  for (const r of road){ const g = await exifGps(r.file); if (g){ placeRoad(r, toM(g.lat, g.lng), true); auto++; } }
   const placed = road.filter(r => r.pos);
   if (placed.length) roadMap.fitBounds(L.latLngBounds(placed.map(r => r.pos)).pad(0.3), {maxZoom:20});
   if (auto) $('roadStatus').textContent = `${auto}枚は写真の位置情報から自動で置きました。ずれている点はドラッグで直してください。`;
@@ -1182,7 +1244,7 @@ $('roadUploadBtn').onclick = async () => {
       if (!up.ok) throw new Error('写真の送信に失敗（HTTP ' + up.status + '）');
       const res = await api('/photo', {method:'POST', body:JSON.stringify({
         uploadReference:{uploadUrl},
-        pose:{ latLngPair:{latitude:r.pos.lat, longitude:r.pos.lng}, heading:roadHeading(i) },
+        pose:{ latLngPair:{latitude:toG(r.pos).lat, longitude:toG(r.pos).lng}, heading:roadHeading(i) },
         captureTime:r.time.toISOString()
       })});
       r.uploaded = res.photoId.id; r.error = null; setPhotoName(r.uploaded, ($('rLblPlace').value.trim() || '道中') + ' ' + (i + 1));
@@ -1939,7 +2001,7 @@ function drawBPlaced(){
   const c = curInn();
   allPhotos.filter(p => !c || photoInn(p) === c).forEach(p => {
     const ll = p.pose && p.pose.latLngPair;
-    if (ll) L.circleMarker([ll.latitude, ll.longitude], {radius:5, color:'#4f7a5a'}).bindTooltip('投稿済み：' + photoLabel(p)).addTo(bPlaced);
+    if (ll) L.circleMarker(toM(ll.latitude, ll.longitude), {radius:5, color:'#4f7a5a'}).bindTooltip('投稿済み：' + photoLabel(p)).addTo(bPlaced);
   });
 }
 function bIcon(i){
@@ -2046,7 +2108,7 @@ $('bUploadBtn').onclick = async () => {
       const level = {number:it.lvlNum, name:it.lvlName || (it.lvlNum + 'F')};
       const res = await api('/photo', {method:'POST', body:JSON.stringify({
         uploadReference:{uploadUrl},
-        pose:{latLngPair:{latitude:it.pos.lat, longitude:it.pos.lng}, heading:it.heading, level},
+        pose:{latLngPair:{latitude:toG(it.pos).lat, longitude:toG(it.pos).lng}, heading:it.heading, level},
         captureTime:it.time.toISOString(), places:[{placeId:pid}]
       })});
       it.uploaded = res.photoId.id; it.error = null;
@@ -2068,7 +2130,9 @@ $('bUploadBtn').onclick = async () => {
 };
 
 /* ---------- お宿さまを切り替えたとき・一覧を読み込んだとき ---------- */
+function refreshLatlng(){ if (pos){ const g = toG(pos); $('latlng').value = g.lat.toFixed(7) + ', ' + g.lng.toFixed(7); } }
 function innChanged(){
+  calibText(); refreshLatlng();
   renderCk(); renderShare(); loadPlan(); drawBPlaced(); if (bItems.length) renderB();
   if (token) loadList();
   if (repMode) showReport(repMode);
