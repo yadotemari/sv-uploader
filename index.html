@@ -6,6 +6,16 @@
 <title>館内360アップローダー</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet.gridlayer.googlemutant@0.15.0/dist/Leaflet.GoogleMutant.js"></script>
+<script>
+/* Googleの地図のキーがあれば、Googleの地図の読み込みを始める */
+(function(){ try{ const k = localStorage.getItem('svGmKey'); if (!k) return;
+  window.__gmReady = function(){}; window.gm_authFailure = function(){ window.__gmFail = true; const m = document.getElementById('gmMsg'); if (m){ m.className = 'status err'; m.textContent = 'Googleの地図のキーが使えませんでした。キーの文字、キーの制限（ウェブサイトの登録）、お支払い情報の登録を確かめてください。'; } };
+  const sc = document.createElement('script'); sc.async = true;
+  sc.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(k) + '&loading=async&callback=__gmReady';
+  sc.onerror = () => window.gm_authFailure();
+  document.head.appendChild(sc); window.__gmKey = k; }catch(e){} })();
+</script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -129,6 +139,11 @@
     <input type="text" id="clientId" placeholder="xxxxxxxx.apps.googleusercontent.com">
     <div class="hint">Google Cloudで作成したクライアントIDを貼り付けて保存してください。この端末のブラウザに保存されます。</div>
     <div style="margin-top:8px"><button id="saveId" class="ghost">保存</button></div>
+    <label for="gmKey">Googleの地図のキー（APIキー）※入れると地図がGoogleの航空写真になります</label>
+    <input type="text" id="gmKey" placeholder="AIza で始まる文字">
+    <div class="hint">Google Cloudで作った「Maps JavaScript API」用のキーです。入れて保存すると、画面が読み込み直され、地図の航空写真がGoogleマップと同じものになります（ずれ合わせは不要になります）。空にして保存すると元の航空写真に戻ります。</div>
+    <div style="margin-top:8px"><button id="saveGm" class="ghost">キーを保存</button></div>
+    <div id="gmMsg" class="status"></div>
   </section>
 
   <section class="card" id="innCard">
@@ -500,6 +515,15 @@ let token = null, tokenClient = null, pos = null, marker = null, file = null;
 $('clientId').value = store.get('svClientId') || '';
 $('placeId').value = store.get('svPlaceId') || '';
 if (store.get('svClientId')) $('setupCard').querySelector('h2').insertAdjacentHTML('beforeend','<span class="hint">（設定済み）</span>');
+$('gmKey').value = store.get('svGmKey') || '';
+if (window.__gmKey && !window.__gmFail){ $('gmMsg').className = 'status ok'; $('gmMsg').textContent = 'Googleの航空写真を使っています。'; }
+$('saveGm').onclick = () => {
+  const k = $('gmKey').value.trim();
+  if (k && !/^AIza[\w-]{20,}$/.test(k)){ $('gmMsg').className = 'status err'; $('gmMsg').textContent = 'キーは「AIza」で始まる39文字ほどの文字です。もう一度コピーして貼り付けてください。'; return; }
+  try{ if (k) localStorage.setItem('svGmKey', k); else localStorage.removeItem('svGmKey'); }catch(e){}
+  $('gmMsg').className = 'status ok'; $('gmMsg').textContent = k ? 'キーを保存しました。2秒後に画面を読み込み直します。' : 'キーを消しました。2秒後に元の航空写真に戻ります。';
+  setTimeout(() => location.reload(), 2000);
+};
 $('saveId').onclick = () => { store.set('svClientId', $('clientId').value.trim()); initAuth(); alert('保存しました'); };
 $('placeId').onchange = () => store.set('svPlaceId', $('placeId').value.trim());
 
@@ -550,12 +574,22 @@ window.addEventListener('load', () => { const t = setInterval(() => { if (window
 $('loginBtn').onclick = () => tokenClient && tokenClient.requestAccessToken({prompt: (token || store.get('svEver')) ? '' : 'consent'});
 
 /* ---------- 地図 ---------- */
+const USE_G = !!(window.__gmKey && L.gridLayer && L.gridLayer.googleMutant);
 const map = L.map('map', {maxZoom:23, zoomSnap:0.5}).setView([34.36, 136.85], 16);
 const street = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'});
 const sat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'});
 L.control.scale({imperial:false}).addTo(map);
-sat.addTo(map);
-L.control.layers({'航空写真':sat,'地図':street}).addTo(map);
+/* 地図の下地：Googleのキーがあれば Googleの航空写真、なければ Esri */
+function baseLayers(m, esri, osm){
+  if (USE_G){
+    const g = L.gridLayer.googleMutant({type:'satellite', maxNativeZoom:21, maxZoom:23}).addTo(m);
+    L.control.layers({'Googleの航空写真':g, '航空写真（Esri・Googleとずれます）':esri, '地図':osm}).addTo(m);
+  } else {
+    esri.addTo(m);
+    L.control.layers({'航空写真':esri, '地図':osm}).addTo(m);
+  }
+}
+baseLayers(map, sat, street);
 const placed = L.layerGroup().addTo(map);
 
 function arrowIcon(deg){
@@ -563,7 +597,7 @@ function arrowIcon(deg){
     html:`<div class="heading-arrow" style="transform:rotate(${deg}deg)"></div>`});
 }
 /* ---------- 航空写真のずれ補正（ツールの地図 ↔ Googleの座標） ---------- */
-function offs(){ const c = typeof curInn === 'function' ? curInn() : null; return jget('svOffset_' + (c ? c.id : '_'), null); }
+function offs(){ if (USE_G) return null; const c = typeof curInn === 'function' ? curInn() : null; return jget('svOffset_' + (c ? c.id : '_'), null); }
 function toG(ll){ const o = offs(); if (!o) return L.latLng(ll.lat, ll.lng);
   return L.latLng(ll.lat + o.n / 111320, ll.lng + o.e / (111320 * Math.cos(ll.lat * Math.PI / 180))); }
 function toM(lat, lng){ const o = offs(); if (!o) return L.latLng(lat, lng);
@@ -858,6 +892,7 @@ $('bkIn').onchange = async e => {
 /* ---------- ずれ合わせ ---------- */
 let calibStep = 0, calibPt = null, calibMk = null;
 function calibText(){
+  if (USE_G){ $('calSum').textContent = '　Googleの航空写真を使っているので、ずれ合わせは不要です（補正は止まっています）'; return; }
   const o = offs(), c = curInn();
   $('calSum').textContent = o ? `　補正中：${o.n >= 0 ? '北' : '南'}へ${Math.abs(o.n).toFixed(1)}m・${o.e >= 0 ? '東' : '西'}へ${Math.abs(o.e).toFixed(1)}m` : '　（まだ合わせていません）';
   if (!c) $('calSum').textContent += '　※お宿さまを選ぶと宿ごとに保存されます';
@@ -1127,9 +1162,8 @@ $('tabRoad').onclick = () => setMode('road');
 function initRoadMap(){
   if (roadMap){ roadMap.invalidateSize(); return; }
   roadMap = L.map('roadMap', {maxZoom:23, zoomSnap:0.5}).setView(map.getCenter(), Math.max(map.getZoom(), 17));
-  const s = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'}).addTo(roadMap);
-  const o = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'});
-  L.control.layers({'航空写真':s, '地図':o}).addTo(roadMap);
+  baseLayers(roadMap, L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'}),
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'}));
   L.control.scale({imperial:false}).addTo(roadMap);
   roadLine = L.polyline([], {color:'#ffd54a', weight:3, dashArray:'6 4'}).addTo(roadMap);
   roadMap.on('click', e => { const r = road.find(x => !x.pos); if (r) placeRoad(r, e.latlng); });
@@ -2014,9 +2048,8 @@ let bMap = null, bItems = [], bCur = -1, bLine = null, bPlaced = null;
 function initBatchMap(){
   if (bMap){ bMap.invalidateSize(); return; }
   bMap = L.map('bMap', {maxZoom:23, zoomSnap:0.5}).setView(map.getCenter(), Math.max(map.getZoom(), 19));
-  const s = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'}).addTo(bMap);
-  const o = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'});
-  L.control.layers({'航空写真':s, '地図':o}).addTo(bMap);
+  baseLayers(bMap, L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'}),
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'}));
   L.control.scale({imperial:false}).addTo(bMap);
   bPlaced = L.layerGroup().addTo(bMap);
   bLine = L.polyline([], {color:'#ffd54a', weight:2, dashArray:'5 4'}).addTo(bMap);
