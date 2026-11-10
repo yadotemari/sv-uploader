@@ -120,6 +120,20 @@
   .bnum i{position:absolute;left:50%;top:50%;width:0;height:0;margin-left:-5px;margin-top:-23px;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:10px solid var(--accent);transform-origin:5px 23px}
   .blurCv{width:100%;aspect-ratio:2/1;border-radius:6px;display:block;margin-top:8px;cursor:crosshair;background:#ddd}
   .bnum.sel i{border-bottom-color:#c89b00} .bnum.up i{border-bottom-color:var(--ok)}
+  .warnbox{margin-top:12px;padding:10px 12px;border-radius:8px;font-size:13px;background:#fff4d6;color:#5a4300;border:1px solid #e0b040}
+  .warnbox.ok{background:transparent;color:var(--ok);border-color:var(--ok)}
+  .warnbox ul{margin:4px 0 0;padding-left:1.3em}
+  @media (prefers-color-scheme: dark){ .warnbox{background:#4a3c14;color:#ffe9a8} .warnbox.ok{background:transparent;color:var(--ok)} }
+  .lnum{width:26px;height:26px;border-radius:50%;background:#fff;color:#2b2320;border:3px solid #35d07f;display:grid;place-items:center;font-size:12px;font-weight:bold;box-shadow:0 0 4px rgba(0,0,0,.7);cursor:pointer}
+  .lnum.sel{background:#ffd54a;border-color:#fff;box-shadow:0 0 0 4px #ffd54a,0 0 6px 4px rgba(0,0,0,.6)}
+  .leaflet-tooltip.lmtip{font-size:11px;padding:0 5px;font-weight:bold}
+  .lno{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 4px;border-radius:10px;background:var(--ink);color:var(--card);font-size:11px;font-weight:bold;margin-right:6px}
+  .lmleg{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--sub);margin-top:6px}
+  .lmleg i{display:inline-block;width:26px;height:0;border-top:4px solid;vertical-align:middle;margin-right:4px}
+  #pvModal{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:5000;display:none;align-items:center;justify-content:center;padding:12px}
+  #pvModal.on{display:flex}
+  .pvin{background:var(--card);border-radius:12px;padding:12px;width:min(1000px,100%);max-height:100%;overflow:auto}
+  #pvCv{width:100%;aspect-ratio:16/9;display:block;border-radius:8px;background:#000;cursor:grab;touch-action:none;margin-top:8px}
   @media (max-width:600px){ .row{grid-template-columns:1fr} #map{height:320px} .share{grid-template-columns:1fr} }
 </style>
 </head>
@@ -301,8 +315,11 @@
       <button id="bUnplace" class="ghost">この写真の位置を消す</button>
     </div>
     <div class="labelbox blurbox" id="bBlur" style="display:none">
-      <b>ぼかし（写り込んだ人・車のナンバーなど）</b>
-      <div class="hint">下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
+      <b>明るさ・ぼかし・360度での確認</b>
+      <label>明るさ：<b class="brv">0</b>（0が元のまま。暗い部屋は +20〜+40 が目安）</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="range" class="br" min="-20" max="60" step="5" value="0" style="flex:1;min-width:180px"><button class="ghost brReset">明るさを元に戻す</button><button class="ghost brAll">この明るさを全部の写真に使う</button></div>
+      <div style="margin-top:10px"><button class="pvBtn">360度で見て確かめる（公開前の確認）</button></div>
+      <div class="hint" style="margin-top:12px"><b>ぼかし（写り込んだ人・車のナンバーなど）</b>：下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
       <canvas class="blurCv" width="1200" height="600"></canvas>
       <div class="row">
         <div><label>次につけるぼかしの形</label>
@@ -331,6 +348,7 @@
     <label class="check"><input type="checkbox" id="bChain" checked> 並び順のとおりに写真同士をつなぐ（玄関 → 廊下 → 客室 のように撮った順）</label>
     <div class="hint">公開直後はつなげないことがあります。そのときは公開後に④の「チェックした順番につなぐ」でつなぎます。</div>
     <div class="target" data-target="batch"></div>
+    <div id="bWarn" class="warnbox" style="display:none"></div>
     <div style="margin-top:12px"><button id="bUploadBtn" disabled>まとめてアップロードして公開</button></div>
     <div id="bStatus" class="status"></div>
   </section>
@@ -344,8 +362,11 @@
     <div class="hint">Insta360アプリで「360度写真」として書き出した横長（2:1）のJPGを選んでください。</div>
     <div id="fileInfo" class="status"></div>
     <div class="labelbox blurbox" id="sBlur" style="display:none">
-      <b>ぼかし（写り込んだ人・車のナンバーなど）</b>
-      <div class="hint">下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
+      <b>明るさ・ぼかし・360度での確認</b>
+      <label>明るさ：<b class="brv">0</b>（0が元のまま。暗い部屋は +20〜+40 が目安）</label>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input type="range" class="br" min="-20" max="60" step="5" value="0" style="flex:1;min-width:180px"><button class="ghost brReset">明るさを元に戻す</button><button class="ghost brAll">この明るさを全部の写真に使う</button></div>
+      <div style="margin-top:10px"><button class="pvBtn">360度で見て確かめる（公開前の確認）</button></div>
+      <div class="hint" style="margin-top:12px"><b>ぼかし（写り込んだ人・車のナンバーなど）</b>：下の写真で、ぼかしたい所をクリックするとぼかしが付きます。付けたぼかしをもう一度クリックすると消えます。公開するときに写真へ焼き込まれます。</div>
       <canvas class="blurCv" width="1200" height="600"></canvas>
       <div class="row">
         <div><label>次につけるぼかしの形</label>
@@ -435,6 +456,7 @@
     <div id="timeHint" class="hint"></div>
     <div class="target" data-target="indoor"></div>
     <div id="editBar" class="editbar" style="display:none"></div>
+    <div id="sWarn" class="warnbox" style="display:none"></div>
     <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
       <button id="uploadBtn" disabled>アップロードして公開</button>
       <button id="saveEditBtn" style="display:none">位置・向きだけ保存</button>
@@ -454,7 +476,20 @@
     <div class="hint">公開まで数時間〜数日かかることがあります。Google側で位置や向きが補正される場合があります。<br>「修正」を押すと、位置・向き・階数を直せます。撮影日時も直したいときは、修正中に①で元の写真を選び直すと、正しい日時で差し替えます。</div>
     <div class="labelbox" id="linkBox">
       <b>写真同士をつなぐ（館内の写真を建物の中に並べて見せる）</b>
-      <div class="hint">つながった写真は、写真の中の矢印で行き来できます。<b>おすすめは「順番につなぐ」</b>：歩いて移動する順（例：玄関 → 廊下 → 客室入口 → 客室中心 → 窓際）にチェックを入れて押すと、その順番どおりに1本道でつながります。チェックの横に出る番号が順番です。<br>
+      <div class="hint">つながった写真は、写真の中の矢印で行き来できます。つなぎ方は2つあります。<b>おすすめは、下の地図でつなぐ方法</b>です。</div>
+      <div style="margin-top:10px"><b>地図の上で線を引いてつなぐ</b></div>
+      <div class="hint">番号の丸が写真です（番号は下の一覧と同じ）。丸を順に押すと線でつながります。分かれ道は、何もない所を押して選択を外してから、分かれ目の丸 → 行き先の丸 の順に押します。線を押すと、その線を外せます。最後に「この内容で保存」を押すまで、Googleには送られません。</div>
+      <div id="lmBar" class="editbar" style="margin-top:8px">ログインして一覧を読み込むと、ここに写真が出ます。</div>
+      <div id="lmLevelBox" style="display:none;margin-top:8px"><label for="lmLevel" style="margin:0 0 4px">表示する階</label><select id="lmLevel" style="font-size:14px;font-weight:normal;padding:6px 8px"></select></div>
+      <div id="linkMap" style="margin-top:8px;height:440px;border-radius:8px;border:1px solid var(--line)"></div>
+      <div class="lmleg"><span><i style="border-color:#35d07f"></i>つながっている</span><span><i style="border-color:#ffd54a"></i>これからつなぐ（保存前）</span><span><i style="border-color:#ff5a4a;border-top-style:dashed"></i>これから外す（保存前）</span></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+        <button id="lmSave" disabled>この内容で保存</button>
+        <button id="lmUndo" class="ghost" disabled>保存前の状態に戻す</button>
+      </div>
+      <div id="lmStatus" class="status"></div>
+      <div style="margin-top:14px;border-top:1px dashed var(--line);padding-top:10px"><b>一覧のチェックでつなぐ（これまでの方法）</b></div>
+      <div class="hint"><b>「順番につなぐ」</b>：歩いて移動する順（例：玄関 → 廊下 → 客室入口 → 客室中心 → 窓際）にチェックを入れて押すと、その順番どおりに1本道でつながります。チェックの横に出る番号が順番です。<br>
       分かれ道（廊下から別の部屋へ など）は、分かれ目の写真から別の部屋までを、もう一度「順番につなぐ」で足します。壁の向こうへ矢印が出るなど変なつながりは、「つながりを外す」でいったん外してからつなぎ直します。</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
         <button id="linkChain" disabled>チェックした順番につなぐ</button>
@@ -479,7 +514,14 @@
   </section>
 
   <section class="card">
-    <h2><span class="num">5</span>閲覧数レポート</h2>
+    <h2><span class="num">5</span>レポート（納品・閲覧数）</h2>
+    <div class="labelbox" style="margin-top:0">
+      <b>納品レポート</b>
+      <div class="hint">選んでいるお宿さまの、公開した写真の一覧・公開状態・確認した日・リンク・QRコードを1つの紙にまとめます。開いた画面の「印刷・PDFで保存」でPDFにして、請求書と一緒にお渡しできます。</div>
+      <div style="margin-top:8px"><button id="dlvBtn" disabled>納品レポートを開く</button></div>
+      <div id="dlvMsg" class="status"></div>
+    </div>
+    <div style="margin-top:14px"><b>閲覧数レポート</b></div>
     <div class="hint">④の一覧を読み込むたびに、その日の閲覧数を記録します。前回の記録や約1か月前の記録と比べて、どれだけ見られたかがわかります。Googleの閲覧数は反映が遅れることがあります。</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       <button id="repBtn" disabled>選んでいるお宿さまのレポート</button>
@@ -500,6 +542,23 @@
   </section>
 </main>
 
+<div id="pvModal">
+  <div class="pvin">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap">
+      <b>360度で見て確かめる（公開される見え方）</b>
+      <button id="pvClose">閉じる</button>
+    </div>
+    <div id="pvMsg" class="hint"></div>
+    <canvas id="pvCv" width="960" height="540"></canvas>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      <button id="pvDown" class="ghost">足元を見る（ラベルの確認）</button>
+      <button id="pvFront" class="ghost">正面に戻す</button>
+      <button id="pvIn" class="ghost">＋ 拡大</button>
+      <button id="pvOut" class="ghost">− 広く</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const API = 'https://streetviewpublish.googleapis.com/v1';
 const SCOPE = 'https://www.googleapis.com/auth/streetviewpublish';
@@ -509,7 +568,7 @@ const store = {
   set(k,v){ try{ localStorage.setItem(k,v) }catch(e){} }
 };
 
-let token = null, tokenClient = null, pos = null, marker = null, file = null;
+let token = null, tokenClient = null, pos = null, marker = null, file = null, headSet = false, sBright = 0;
 
 /* ---------- 初期設定 ---------- */
 $('clientId').value = store.get('svClientId') || '';
@@ -613,7 +672,7 @@ function setPos(latlng){
   updateUploadBtn();
 }
 map.on('click', e => { if (aimStep === 2) return aimMapClick(e.latlng); if (calibStep === 1) return calibClick(e.latlng); setPos(e.latlng); });
-$('heading').oninput = () => { $('headingVal').textContent = $('heading').value; if (marker) marker.setIcon(arrowIcon(+$('heading').value)); drawAimMarks(); };
+$('heading').oninput = () => { headSet = true; $('headingVal').textContent = $('heading').value; if (marker) marker.setIcon(arrowIcon(+$('heading').value)); drawAimMarks(); };
 
 /* ---------- 写真の目印で向きを合わせる ---------- */
 let aimStep = 0, aimYaw = 0, aimLine = null;
@@ -677,7 +736,7 @@ $('searchBtn').onclick = async () => {
 /* ---------- 写真 ---------- */
 function toLocalInput(d){ const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 $('file').onchange = () => {
-  file = $('file').files[0] || null;
+  file = $('file').files[0] || null; headSet = false; sBright = 0;
   $('fileInfo').textContent = ''; $('fileInfo').className = 'status';
   if (!file){ $('preview').style.display='none'; updateUploadBtn(); return; }
   const url = URL.createObjectURL(file);
@@ -702,6 +761,7 @@ function updateUploadBtn(){
   $('uploadBtn').disabled = !(token && file && pos);
   $('uploadBtn').textContent = editing ? '写真を差し替えて公開（撮影日時も修正）' : 'アップロードして公開';
   $('saveEditBtn').disabled = !(token && pos);
+  try{ renderSWarn(); }catch(e){}
 }
 function buildPose(){
   return {
@@ -736,6 +796,7 @@ function stopEdit(){
 $('cancelEditBtn').onclick = stopEdit;
 $('saveEditBtn').onclick = async () => {
   if (!editing) return;
+  if (!warnOk(sWarnings())) return;
   const st = $('upStatus'); st.className = 'status'; st.textContent = '保存中…';
   $('saveEditBtn').disabled = true;
   try{
@@ -769,6 +830,7 @@ async function api(path, opt = {}){
 
 $('uploadBtn').onclick = async () => {
   const st = $('upStatus'); st.className = 'status';
+  if (!warnOk(sWarnings())) return;
   $('uploadBtn').disabled = true;
   try{
     st.textContent = '1/3 アップロード準備中…';
@@ -776,9 +838,9 @@ $('uploadBtn').onclick = async () => {
 
     let body = file;
     const lt = labelText('lblInn', 'lblPlace'), lbl = $('lblOn').checked && (lt[0] || lt[1]) ? lt : null;
-    if (lbl || sBlurs.length || nadDeg()){
-      st.textContent = '2/3 写真を加工しています（ラベル・ぼかし）…';
-      body = await labelImage(file, lbl, sBlurs, nadDeg());
+    if (lbl || sBlurs.length || nadDeg() || sBright){
+      st.textContent = '2/3 写真を加工しています（明るさ・ラベル・ぼかし）…';
+      body = await labelImage(file, lbl, sBlurs, nadDeg(), sBright);
     }
     st.textContent = '2/3 写真を送信中…';
     const up = await fetch(uploadUrl, {method:'POST', headers:{'Authorization':'Bearer ' + token, 'Content-Type':'image/jpeg'}, body});
@@ -805,7 +867,7 @@ $('uploadBtn').onclick = async () => {
     st.className = 'status ok';
     st.textContent = msg;
     $('file').value = ''; file = null; $('preview').style.display = 'none'; $('fileInfo').textContent = '';
-    sBlurs = []; sBlurEd.refresh();
+    sBlurs = []; sBright = 0; sBlurEd.refresh();
     loadList();
   }catch(e){
     st.className = 'status err';
@@ -826,7 +888,7 @@ async function loadList(){
     const c = curInn(), only = $('onlyInn').checked && c;
     const shown = only ? photos.filter(p => photoInn(p) === c) : photos;
     $('listCount').textContent = only ? `「${c.name}」の写真 ${shown.length}枚（全部で${photos.length}枚）` : `全部で${photos.length}枚`;
-    if (!shown.length){ box.textContent = photos.length ? 'このお宿さまの写真はまだありません（チェックを外すと全部の写真が出ます）' : 'まだ投稿はありません'; listPhotos = []; updateLinkBtn(); return; }
+    if (!shown.length){ box.textContent = photos.length ? 'このお宿さまの写真はまだありません（チェックを外すと全部の写真が出ます）' : 'まだ投稿はありません'; listPhotos = []; updateLinkBtn(); renderLinkMap(); return; }
     box.innerHTML = '';
     listPhotos = shown;
     const byId = Object.fromEntries(photos.map(p => [p.photoId.id, p]));
@@ -835,13 +897,13 @@ async function loadList(){
       if (q && p.pose && q.pose && p.photoId.id < q.photoId.id)
         L.polyline([toM(p.pose.latLngPair.latitude, p.pose.latLngPair.longitude), toM(q.pose.latLngPair.latitude, q.pose.latLngPair.longitude)], {color:'#4f7a5a', weight:2, dashArray:'4 3'}).addTo(placed);
     }));
-    shown.forEach(p => {
+    shown.forEach((p, pi) => {
       const ll = p.pose && p.pose.latLngPair;
       const lvl = p.pose && p.pose.level ? p.pose.level.name : '';
       const status = STATUS_JA[p.mapsPublishStatus] || p.mapsPublishStatus || '審査中';
       const el = document.createElement('div'); el.className = 'item';
       el.innerHTML = `<label class="chkwrap"><input type="checkbox" class="linkChk" value="${p.photoId.id}" aria-label="つなぐ写真に選ぶ"><span class="ord"></span></label><img src="${p.thumbnailUrl || ''}" alt="">
-        <div>${photoName(p.photoId.id) ? '<b>' + esc(photoName(p.photoId.id)) + '</b>　' : ''}${status}${lvl ? '・' + lvl : ''}<small>${ll ? ll.latitude.toFixed(6) + ', ' + ll.longitude.toFixed(6) : ''}　閲覧 ${p.viewCount || 0}　つながり ${(p.connections || []).length}</small>
+        <div><span class="lno" title="地図でつなぐときの番号">${pi + 1}</span>${photoName(p.photoId.id) ? '<b>' + esc(photoName(p.photoId.id)) + '</b>　' : ''}${status}${lvl ? '・' + lvl : ''}<small>${ll ? ll.latitude.toFixed(6) + ', ' + ll.longitude.toFixed(6) : ''}　閲覧 ${p.viewCount || 0}　つながり ${(p.connections || []).length}</small>
         ${p.shareLink ? `<a href="${p.shareLink}" target="_blank" rel="noopener">Googleマップで見る</a>` : ''}</div>`;
       const del = document.createElement('button'); del.className = 'ghost'; del.textContent = '削除';
       del.onclick = async () => {
@@ -860,7 +922,7 @@ async function loadList(){
       if (ll) L.circleMarker(toM(ll.latitude, ll.longitude), {radius:6, color:'#4f7a5a'}).bindTooltip(photoName(p.photoId.id) || '').addTo(placed);
     });
     box.querySelectorAll('.linkChk').forEach(c => c.addEventListener('change', updateLinkBtn));
-    updateLinkBtn(); updateShiftBtn();
+    updateLinkBtn(); updateShiftBtn(); renderLinkMap(); renderSWarn(); renderBWarn();
   }catch(e){ box.textContent = '一覧の取得に失敗しました：' + e.message; }
 }
 $('refreshBtn').onclick = loadList;
@@ -1061,8 +1123,8 @@ function updateLinkBtn(){
 }
 $('linkAll').onclick = () => { document.querySelectorAll('.linkChk').forEach(c => c.checked = true); updateLinkBtn(); };
 $('linkNone').onclick = () => { document.querySelectorAll('.linkChk').forEach(c => c.checked = false); updateLinkBtn(); };
-async function putConnections(links, label){
-  const st = $('linkStatus'); st.className = 'status';
+async function putConnections(links, label, stEl){
+  const st = stEl || $('linkStatus'); st.className = 'status';
   ['linkChain', 'linkBtn', 'unlinkBtn'].forEach(id => $(id).disabled = true);
   let ok = 0, ng = 0, i = 0; const n = Object.keys(links).length;
   for (const [id, set] of Object.entries(links)){
@@ -1404,16 +1466,31 @@ function addXmp(buf, w, h){
   out.set(src.subarray(0, 2)); out.set(seg, 2); out.set(src.subarray(2), 2 + seg.length);
   return new Blob([out], {type:'image/jpeg'});
 }
-async function labelImage(file, lbl, blurs, nad){
-  const bmp = await createImageBitmap(file);
-  const W = bmp.width, H = bmp.height;
-  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-  const g = cv.getContext('2d'); g.drawImage(bmp, 0, 0); bmp.close && bmp.close();
-  applyBlurs(g, W, H, blurs || [], nad || 0);
-  if (!lbl){
-    const b0 = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.92));
-    return addXmp(await b0.arrayBuffer(), W, H);
+/* 明るさ：v は -20〜60。暗い所を持ち上げ、明るい所は白とびしにくい直し方（ガンマ） */
+function applyBright(g, W, H, v){
+  if (!v) return;
+  const lut = new Uint8ClampedArray(256), gm = Math.pow(2, -v / 50);
+  for (let i = 0; i < 256; i++) lut[i] = Math.round(255 * Math.pow(i / 255, gm));
+  for (let y = 0; y < H; y += 256){
+    const h = Math.min(256, H - y), im = g.getImageData(0, y, W, h), d = im.data;
+    for (let i = 0; i < d.length; i += 4){ d[i] = lut[d[i]]; d[i + 1] = lut[d[i + 1]]; d[i + 2] = lut[d[i + 2]]; }
+    g.putImageData(im, 0, y);
   }
+}
+async function labelImage(file, lbl, blurs, nad, bright){
+  const cv = await processCanvas(file, lbl, blurs, nad, bright, 0);
+  const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.92));
+  return addXmp(await blob.arrayBuffer(), cv.width, cv.height);
+}
+/* 公開する写真を作る（明るさ → ぼかし → ラベル）。maxW を入れると、確認用に小さく作る */
+async function processCanvas(file, lbl, blurs, nad, bright, maxW){
+  const bmp = await createImageBitmap(file);
+  const W = maxW ? Math.min(maxW, bmp.width) : bmp.width, H = Math.round(bmp.height * W / bmp.width);
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d'); g.drawImage(bmp, 0, 0, W, H); bmp.close && bmp.close();
+  applyBright(g, W, H, bright || 0);
+  applyBlurs(g, W, H, blurs || [], nad || 0);
+  if (!lbl) return cv;
   const [inn, place, en] = lbl;
   const PS = 1600, patch = drawPatch(PS, inn, place, en).getContext('2d').getImageData(0, 0, PS, PS).data;
   const a = LBL_ANGLE * Math.PI / 180, Rp = Math.tan(a), y0 = Math.floor(H * (1 - LBL_ANGLE / 180)) - 2;
@@ -1438,8 +1515,7 @@ async function labelImage(file, lbl, blurs, nad){
     }
   }
   g.putImageData(band, 0, y0);
-  const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.92));
-  return addXmp(await blob.arrayBuffer(), W, H);
+  return cv;
 }
 /* 宿名は館内・道路で共通にして保存 */
 $('lblInn').value = $('rLblInn').value = store.get('svLblInn') || '';
@@ -1993,13 +2069,14 @@ document.querySelectorAll('.nadDeg').forEach(c => c.addEventListener('input', ()
 syncNadUI();
 
 const blurEds = [];
-function makeBlurEditor(box, getSrc, getList){
+function makeBlurEditor(box, getSrc, getList, o){
   const cv = box.querySelector('.blurCv'), g = cv.getContext('2d');
   let img = null, src = '';
   const ed = {refresh(){
     const s = getSrc();
     box.style.display = s ? '' : 'none';
     if (!s) return;
+    brUI();
     if (s !== src){ src = s; img = new Image(); img.onload = draw; img.src = s; return; }
     draw();
   }};
@@ -2007,6 +2084,7 @@ function makeBlurEditor(box, getSrc, getList){
     if (!img || !img.complete || !img.naturalWidth) return;
     const W = cv.width, H = cv.height, list = getList() || [];
     g.drawImage(img, 0, 0, W, H);
+    applyBright(g, W, H, o.getBr());
     applyBlurs(g, W, H, list, nadDeg());
     g.save(); g.strokeStyle = '#ffd54a'; g.lineWidth = 2; g.setLineDash([6, 4]);
     list.forEach(b => {
@@ -2036,12 +2114,26 @@ function makeBlurEditor(box, getSrc, getList){
       box.querySelector('.bzv').textContent = z.value; };
   });
   box.querySelector('.bzClear').onclick = () => { const l = getList(); if (l) l.length = 0; draw(); };
+  const br = box.querySelector('.br');
+  function brUI(){ const v = o.getBr(); br.value = v; box.querySelector('.brv').textContent = (v > 0 ? '+' : '') + v; }
+  br.oninput = () => { o.setBr(+br.value); brUI(); draw(); };
+  box.querySelector('.brReset').onclick = () => { o.setBr(0); brUI(); draw(); };
+  const ba = box.querySelector('.brAll');
+  if (o.setAll) ba.onclick = () => { const n = o.setAll(o.getBr()); ba.textContent = `${n}枚に同じ明るさを入れました`; setTimeout(() => ba.textContent = 'この明るさを全部の写真に使う', 2500); };
+  else ba.style.display = 'none';
+  box.querySelector('.pvBtn').onclick = () => { const j = o.job(); if (j) openPreview(j); };
   blurEds.push(ed); return ed;
 }
 let sBlurs = [];
-const sBlurEd = makeBlurEditor($('sBlur'), () => (file && $('preview').src) || '', () => sBlurs);
+function sLbl(){ const lt = labelText('lblInn', 'lblPlace'); return $('lblOn').checked && (lt[0] || lt[1]) ? lt : null; }
+function bLbl(it){ const inn = $('lblInn').value.trim(); return $('bLblOn').checked && (inn || it.place.trim()) ? [inn, it.place.trim(), enOn() ? it.en.trim() : ''] : null; }
+const sBlurEd = makeBlurEditor($('sBlur'), () => (file && $('preview').src) || '', () => sBlurs,
+  {getBr:() => sBright, setBr:v => { sBright = v; }, job:() => file ? {file, lbl:sLbl(), blurs:sBlurs, nad:nadDeg(), bright:sBright} : null});
 $('file').addEventListener('change', () => { sBlurs = []; sBlurEd.refresh(); });
-const bBlurEd = makeBlurEditor($('bBlur'), () => { const it = bItems[bCur]; return it && !it.uploaded ? it.url : ''; }, () => { const it = bItems[bCur]; return it ? it.blurs : null; });
+const bBlurEd = makeBlurEditor($('bBlur'), () => { const it = bItems[bCur]; return it && !it.uploaded ? it.url : ''; }, () => { const it = bItems[bCur]; return it ? it.blurs : null; },
+  {getBr:() => { const it = bItems[bCur]; return it ? it.bright || 0 : 0; }, setBr:v => { const it = bItems[bCur]; if (it) it.bright = v; },
+   setAll:v => { let n = 0; bItems.forEach(it => { if (!it.uploaded){ it.bright = v; n++; } }); return n; },
+   job:() => { const it = bItems[bCur]; return it ? {file:it.file, lbl:bLbl(it), blurs:it.blurs, nad:nadDeg(), bright:it.bright || 0} : null; }});
 
 /* ---------- ⑤ 館内（まとめて） ---------- */
 let bMap = null, bItems = [], bCur = -1, bLine = null, bPlaced = null;
@@ -2126,19 +2218,19 @@ function renderB(){
   const ready = bItems.length && bItems.every(x => x.pos), allUp = bItems.length && bItems.every(x => x.uploaded);
   $('bUploadBtn').disabled = !(token && ready && pid && !allUp);
   $('bUploadBtn').textContent = bItems.some(x => x.uploaded) && !allUp ? '失敗した写真だけもう一度アップロード' : `まとめてアップロードして公開${bItems.length ? `（${bItems.length}枚）` : ''}`;
-  renderBPrev(); bBlurEd.refresh();
+  renderBPrev(); bBlurEd.refresh(); renderBWarn();
 }
 $('bFiles').onchange = () => {
   bItems.forEach(it => { if (it.marker) bMap.removeLayer(it.marker); URL.revokeObjectURL(it.url); });
   const files = [...$('bFiles').files].sort((a, b) => a.name.localeCompare(b.name, undefined, {numeric:true}));
   const ln = +$('levelNum').value || 1, lname = $('levelName').value.trim() || ln + 'F';
   bItems = files.map(f => ({file:f, url:URL.createObjectURL(f), name:f.name, time:timeFromName(f), pos:null, marker:null,
-    heading:+$('bHeading').value || 0, place:'', en:'', enManual:false, blurs:[], lvlNum:ln, lvlName:lname, uploaded:null, error:null}));
+    heading:+$('bHeading').value || 0, place:'', en:'', enManual:false, blurs:[], bright:0, lvlNum:ln, lvlName:lname, uploaded:null, error:null}));
   $('bStatus').textContent = '';
   bCur = bItems.length ? 0 : -1; loadBFields(); renderB();
 };
 $('bHeading').oninput = () => { const it = bItems[bCur]; $('bHeadingVal').textContent = $('bHeading').value; if (it){ it.heading = +$('bHeading').value; it.touched = true; renderB(); } };
-$('bHeadAll').onclick = () => { bItems.forEach(it => { if (!it.uploaded) it.heading = +$('bHeading').value; }); renderB(); };
+$('bHeadAll').onclick = () => { bItems.forEach(it => { if (!it.uploaded){ it.heading = +$('bHeading').value; it.touched = true; } }); renderB(); };
 $('bPlace').oninput = () => {
   const it = bItems[bCur]; if (!it) return;
   it.place = $('bPlace').value;
@@ -2149,7 +2241,8 @@ $('bEn').oninput = () => { const it = bItems[bCur]; if (!it) return; it.en = $('
 /* 階数は、この写真と、この後の写真にまとめて入る */
 ['bLevelNum', 'bLevelName'].forEach(id => $(id).oninput = () => {
   if (id === 'bLevelNum' && /^\d+$/.test($('bLevelNum').value) && /^\d*F?$/.test($('bLevelName').value)) $('bLevelName').value = $('bLevelNum').value + 'F';
-  bItems.forEach((it, i) => { if (i >= bCur && !it.uploaded){ it.lvlNum = +$('bLevelNum').value; it.lvlName = $('bLevelName').value.trim(); } });
+  bItems.forEach((it, i) => { if (i >= bCur && !it.uploaded){ it.lvlNum = $('bLevelNum').value.trim() === '' ? NaN : +$('bLevelNum').value; it.lvlName = $('bLevelName').value.trim(); } });
+  renderBWarn();
 });
 $('bPrev').onclick = () => { if (bCur > 0) selectB(bCur - 1); };
 $('bNext').onclick = () => { if (bCur < bItems.length - 1) selectB(bCur + 1); };
@@ -2160,6 +2253,7 @@ $('placeId').addEventListener('input', renderB);
 $('bUploadBtn').onclick = async () => {
   const st = $('bStatus'); st.className = 'status';
   const pid = $('placeId').value.trim(), inn = $('lblInn').value.trim();
+  if (!warnOk(bWarnings())) return;
   $('bUploadBtn').disabled = true;
   let ng = 0;
   for (let i = 0; i < bItems.length; i++){
@@ -2168,8 +2262,8 @@ $('bUploadBtn').onclick = async () => {
     try{
       const { uploadUrl } = await api('/photo:startUpload', {method:'POST', body:'{}'});
       let body = it.file;
-      { const lbl = $('bLblOn').checked && (inn || it.place.trim()) ? [inn, it.place.trim(), enOn() ? it.en.trim() : ''] : null;
-        if (lbl || it.blurs.length || nadDeg()) body = await labelImage(it.file, lbl, it.blurs, nadDeg()); }
+      { const lbl = bLbl(it);
+        if (lbl || it.blurs.length || nadDeg() || it.bright) body = await labelImage(it.file, lbl, it.blurs, nadDeg(), it.bright || 0); }
       const up = await fetch(uploadUrl, {method:'POST', headers:{'Authorization':'Bearer ' + token, 'Content-Type':'image/jpeg'}, body});
       if (!up.ok) throw new Error('写真の送信に失敗（HTTP ' + up.status + '）');
       const level = {number:it.lvlNum, name:it.lvlName || (it.lvlNum + 'F')};
@@ -2196,17 +2290,306 @@ $('bUploadBtn').onclick = async () => {
   renderB(); loadList();
 };
 
+/* ================= 追加機能（その2） ================= */
+/* ---------- 置きまちがいの注意表示 ---------- */
+function gOf(ll){ const g = toG(ll); return {latitude:g.lat, longitude:g.lng}; }
+function overlapPub(g, lvlNum, exceptId){
+  return allPhotos.find(p => {
+    const ll = p.pose && p.pose.latLngPair; if (!ll || p.photoId.id === exceptId) return false;
+    const lv = p.pose.level;
+    if (lv && lvlNum != null && !isNaN(lvlNum) && (lv.number || 0) !== lvlNum) return false;   // 階がちがえば重なりではない
+    return distM(ll, g) < 0.5;
+  });
+}
+function sWarnings(){
+  const w = []; if (!pos) return w;
+  const g = gOf(pos), c = curInn();
+  if (c && c.lat != null){
+    const d = distM(g, {latitude:c.lat, longitude:c.lng});
+    if (d > 200) w.push(`置いた位置が、お宿さま「${c.name}」から約${Math.round(d)}m離れています。★で別のお宿さまを選んだままになっていませんか？`);
+  } else if (!c && inns.length) w.push('★で、お宿さまが選ばれていません。');
+  const ln = $('levelNum').value.trim();
+  if (ln === '' || isNaN(+ln) || !$('levelName').value.trim()) w.push('階数（数字）か、階の表示名が空です。②の下の欄に入れてください。');
+  const o = overlapPub(g, +ln, editing && editing.photoId.id);
+  if (o) w.push(`投稿済みの「${photoLabel(o)}」と同じ位置に重なっています（50cm以内）。同じ場所の撮り直しでなければ、位置を置き直してください。`);
+  if (file && !editing){
+    if (!headSet) w.push(`向き（今 ${$('heading').value}°）を、この写真を選んでから変えていません。前の写真の向きのままになっていませんか？`);
+    if ($('lblOn').checked && !$('lblPlace').value.trim()) w.push('ラベルの「場所」が空です。ラベルに場所名が入りません。');
+    if (!$('placeId').value.trim() && !$('noPlace').checked) w.push('プレイスIDが空です。お宿さまとひもづかないまま公開されます。');
+  }
+  return w;
+}
+function bWarnings(){
+  const w = [], its = bItems.filter(x => !x.uploaded && x.pos); if (!its.length) return w;
+  const no = it => bItems.indexOf(it) + 1, nums = a => a.map(no).join('・') + '枚目';
+  const c = curInn();
+  if (c && c.lat != null){
+    const far = its.filter(it => distM(gOf(it.pos), {latitude:c.lat, longitude:c.lng}) > 200);
+    if (far.length) w.push(`${nums(far)}が、お宿さま「${c.name}」から200m以上離れています。★で別のお宿さまを選んだままになっていませんか？`);
+  }
+  const noLv = its.filter(it => it.lvlNum == null || isNaN(it.lvlNum) || !String(it.lvlName || '').trim());
+  if (noLv.length) w.push(`${nums(noLv)}の階数が入っていません。`);
+  const dup = [];
+  its.forEach((a, i) => its.forEach((b, j) => { if (j > i && a.lvlNum === b.lvlNum && distM(gOf(a.pos), gOf(b.pos)) < 0.5) dup.push(`${no(a)}枚目と${no(b)}枚目`); }));
+  if (dup.length) w.push(`${dup.join('、')}が、同じ位置に重なっています（50cm以内）。番号の丸をドラッグして離してください。`);
+  const op = its.filter(it => overlapPub(gOf(it.pos), it.lvlNum, null));
+  if (op.length) w.push(`${nums(op)}が、投稿済みの写真と同じ位置に重なっています（緑の丸）。撮り直しでなければ、位置を置き直してください。`);
+  const nn = its.filter(it => !it.place.trim());
+  if (nn.length) w.push(`${nums(nn)}の場所名が空です。`);
+  const nh = its.filter(it => !it.touched);
+  if (nh.length) w.push(`${nums(nh)}は、向きを自分で合わせていません（前の写真と同じ向きが入っています）。全部同じ向きで撮ったときは「この向きを全部の写真に使う」を押すと、この注意は消えます。`);
+  if ($('bChain').checked) for (let i = 1; i < bItems.length; i++){
+    const a = bItems[i - 1], b = bItems[i]; if (!a.pos || !b.pos) continue;
+    const d = distM(gOf(a.pos), gOf(b.pos));
+    if (d > 30) w.push(`${i}枚目と${i + 1}枚目が約${Math.round(d)}m離れています。「並び順のとおりにつなぐ」と、この2枚が直接つながります。`);
+  }
+  return w;
+}
+function renderWarnBox(el, w, show){
+  if (!el) return;
+  if (!show){ el.style.display = 'none'; return; }
+  el.style.display = ''; el.className = 'warnbox' + (w.length ? '' : ' ok');
+  el.innerHTML = w.length ? `<b>⚠ 公開前の注意（${w.length}件）</b><ul>${w.map(x => '<li>' + esc(x) + '</li>').join('')}</ul>`
+    : '✓ 置きまちがいのチェック：問題は見つかりませんでした。';
+}
+function renderSWarn(){ renderWarnBox($('sWarn'), sWarnings(), !!(pos && (file || editing))); }
+function renderBWarn(){ renderWarnBox($('bWarn'), bWarnings(), bItems.some(x => !x.uploaded && x.pos)); }
+function warnOk(w){
+  return !w.length || confirm(`公開前の注意が${w.length}件あります。\n\n・${w.join('\n・')}\n\nこのまま進めますか？（直すときは「キャンセル」）`);
+}
+['levelNum', 'levelName', 'lblPlace', 'placeId'].forEach(id => $(id).addEventListener('input', renderSWarn));
+['lblOn', 'noPlace'].forEach(id => $(id).addEventListener('change', renderSWarn));
+$('heading').addEventListener('input', renderSWarn);
+$('bChain').addEventListener('change', renderBWarn);
+
+/* ---------- 公開前の360度プレビュー ---------- */
+const pv = {s32:null, W:0, H:0, yaw:0, pitch:0, fov:95, out:null, raf:0};
+function pvDraw(){
+  pv.raf = 0;
+  const cv = $('pvCv'), w = cv.width, h = cv.height, g = cv.getContext('2d');
+  if (!pv.s32){ g.fillStyle = '#000'; g.fillRect(0, 0, w, h); return; }
+  if (!pv.out) pv.out = g.createImageData(w, h);
+  const o32 = new Uint32Array(pv.out.data.buffer), s = pv.s32, W = pv.W, H = pv.H, R = Math.PI / 180;
+  const f = (w / 2) / Math.tan(pv.fov * R / 2), cy = Math.cos(pv.yaw * R), sy = Math.sin(pv.yaw * R), cp = Math.cos(pv.pitch * R), sp = Math.sin(pv.pitch * R);
+  const kx = W / (2 * Math.PI), ky = H / Math.PI;
+  let k = 0;
+  for (let j = 0; j < h; j++){
+    const y = h / 2 - j - 0.5, y2 = y * cp + f * sp, z2 = -y * sp + f * cp;
+    for (let i = 0; i < w; i++){
+      const x = i + 0.5 - w / 2, X = x * cy + z2 * sy, Z = -x * sy + z2 * cy;
+      let u = (Math.atan2(X, Z) + Math.PI) * kx | 0; if (u >= W) u = W - 1;
+      let v = (Math.PI / 2 - Math.atan2(y2, Math.sqrt(X * X + Z * Z))) * ky | 0; if (v >= H) v = H - 1;
+      o32[k++] = s[v * W + u];
+    }
+  }
+  g.putImageData(pv.out, 0, 0);
+}
+function pvAsk(){ if (!pv.raf) pv.raf = requestAnimationFrame(pvDraw); }
+async function openPreview(job){
+  $('pvModal').classList.add('on');
+  pv.s32 = null; pvDraw();
+  $('pvMsg').textContent = '準備しています…（数秒かかります）';
+  try{
+    await new Promise(r => setTimeout(r, 30));
+    const cv = await processCanvas(job.file, job.lbl, job.blurs, job.nad, job.bright, 4096);
+    pv.W = cv.width; pv.H = cv.height;
+    pv.s32 = new Uint32Array(cv.getContext('2d').getImageData(0, 0, pv.W, pv.H).data.buffer);
+    pv.yaw = 0; pv.pitch = 0; pv.fov = 95; pvDraw();
+    $('pvMsg').textContent = '写真の上でドラッグすると見回せます。明るさ・ぼかし・ラベルが入った、公開されるときの見え方です。ぼかし忘れがないか、ぐるっと一周と足元を確かめてください。';
+  }catch(e){ $('pvMsg').textContent = 'プレビューを作れませんでした：' + e.message; }
+}
+function closePreview(){ $('pvModal').classList.remove('on'); pv.s32 = null; }
+(() => {
+  const cv = $('pvCv'); let drag = null;
+  cv.addEventListener('pointerdown', e => { drag = {x:e.clientX, y:e.clientY}; cv.setPointerCapture(e.pointerId); cv.style.cursor = 'grabbing'; });
+  cv.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const k = pv.fov / cv.getBoundingClientRect().width;
+    pv.yaw -= (e.clientX - drag.x) * k; pv.pitch = Math.max(-90, Math.min(90, pv.pitch + (e.clientY - drag.y) * k));
+    drag = {x:e.clientX, y:e.clientY}; pvAsk();
+  });
+  const up = () => { drag = null; cv.style.cursor = 'grab'; };
+  cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
+  const zoom = d => { pv.fov = Math.max(40, Math.min(115, pv.fov + d)); pvAsk(); };
+  cv.addEventListener('wheel', e => { e.preventDefault(); zoom(e.deltaY > 0 ? 6 : -6); }, {passive:false});
+  $('pvIn').onclick = () => zoom(-15); $('pvOut').onclick = () => zoom(15);
+  $('pvDown').onclick = () => { pv.pitch = -90; pv.fov = 95; pvAsk(); };
+  $('pvFront').onclick = () => { pv.yaw = 0; pv.pitch = 0; pv.fov = 95; pvAsk(); };
+  $('pvClose').onclick = closePreview;
+  $('pvModal').addEventListener('click', e => { if (e.target === $('pvModal')) closePreview(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && $('pvModal').classList.contains('on')) closePreview(); });
+})();
+
+/* ---------- 地図の上で線を引いてつなぐ ---------- */
+let lMap = null, lmLayer = null, lmSel = null, lmAdd = [], lmDel = [], lmIds = '';
+const ek = (a, b) => a < b ? a + '|' + b : b + '|' + a;
+function lmEdges(){
+  const ids = new Set(listPhotos.map(p => p.photoId.id)), s = new Set();
+  listPhotos.forEach(p => (p.connections || []).forEach(c => { const t = c.target && c.target.id; if (ids.has(t)) s.add(ek(p.photoId.id, t)); }));
+  return s;
+}
+function lmLevelOf(p){ return (p.pose && p.pose.level && p.pose.level.name) || ''; }
+function renderLinkMap(){
+  const ids = listPhotos.map(p => p.photoId.id).join(',');
+  const fresh = ids !== lmIds; lmIds = ids;
+  if (fresh){ lmSel = null; lmAdd = []; lmDel = []; }
+  const has = new Set(listPhotos.map(p => p.photoId.id)), okk = k => k.split('|').every(x => has.has(x));
+  lmAdd = lmAdd.filter(okk); lmDel = lmDel.filter(okk);
+  const pts = listPhotos.filter(p => p.pose && p.pose.latLngPair);
+  if (!lMap){
+    if (!pts.length){ lmText(); return; }
+    lMap = L.map('linkMap', {maxZoom:23, zoomSnap:0.5}).setView(map.getCenter(), 19);
+    baseLayers(lMap, L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {maxZoom:23, maxNativeZoom:18, attribution:'Esri World Imagery'}),
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'}));
+    L.control.scale({imperial:false}).addTo(lMap);
+    lmLayer = L.layerGroup().addTo(lMap);
+    lMap.on('click', () => { if (lmSel){ lmSel = null; drawLinkMap(); } });
+  }
+  const lvs = [...new Set(pts.map(lmLevelOf))].sort(), cur = $('lmLevel').value;
+  $('lmLevel').innerHTML = '<option value="">全部の階</option>' + lvs.map(v => `<option value="${esc(v)}">${esc(v || '階なし')}だけ</option>`).join('');
+  $('lmLevel').value = lvs.includes(cur) ? cur : '';
+  $('lmLevelBox').style.display = lvs.length > 1 ? '' : 'none';
+  if (fresh && pts.length){
+    lMap.invalidateSize();
+    lMap.fitBounds(L.latLngBounds(pts.map(p => toM(p.pose.latLngPair.latitude, p.pose.latLngPair.longitude))).pad(0.35), {maxZoom:21});
+  }
+  drawLinkMap();
+}
+function lmText(){
+  const n = lmAdd.length, m = lmDel.length, by = Object.fromEntries(listPhotos.map((p, i) => [p.photoId.id, {p, i}]));
+  const bar = $('lmBar');
+  if (!token) bar.textContent = 'ログインして一覧を読み込むと、ここに写真が出ます。';
+  else if (!listPhotos.length) bar.textContent = 'このお宿さまの写真がまだありません。';
+  else if (lmSel && by[lmSel]) bar.textContent = `${by[lmSel].i + 1}番「${photoLabel(by[lmSel].p)}」を選んでいます（黄色の丸）。\n次につなぐ写真の丸を押してください。ここで止める・分かれ道を作るときは、地図の何もない所を押します。`;
+  else bar.textContent = 'つなぎはじめの写真（番号の丸）を押してください。線を外すときは、その線を押します。';
+  $('lmSave').disabled = !(token && (n || m));
+  $('lmSave').textContent = n || m ? `この内容で保存（つなぐ ${n}本・外す ${m}本）` : 'この内容で保存';
+  $('lmUndo').disabled = !(n || m || lmSel);
+}
+function drawLinkMap(){
+  lmText();
+  if (!lMap) return;
+  lmLayer.clearLayers();
+  const lv = $('lmLevel').value, all = $('lmLevel').value === '' || $('lmLevelBox').style.display === 'none';
+  const vis = p => p && p.pose && p.pose.latLngPair && (all || lmLevelOf(p) === lv);
+  const by = Object.fromEntries(listPhotos.map(p => [p.photoId.id, p]));
+  const pt = p => toM(p.pose.latLngPair.latitude, p.pose.latLngPair.longitude);
+  const ex = lmEdges();
+  const line = (k, style, fn, tip) => {
+    const [a, b] = k.split('|'), A = by[a], B = by[b]; if (!vis(A) || !vis(B)) return;
+    L.polyline([pt(A), pt(B)], {color:'#000', weight:style.weight + 4, opacity:.35, interactive:false}).addTo(lmLayer);
+    const l = L.polyline([pt(A), pt(B)], style).bindTooltip(tip, {sticky:true}).addTo(lmLayer);
+    l.on('click', e => { L.DomEvent.stopPropagation(e); fn(); drawLinkMap(); });
+  };
+  ex.forEach(k => {
+    if (lmDel.includes(k)) line(k, {color:'#ff5a4a', weight:5, dashArray:'8 8'}, () => { lmDel = lmDel.filter(x => x !== k); }, '外す予定の線（押すと元に戻す）');
+    else line(k, {color:'#35d07f', weight:5}, () => { lmDel.push(k); }, 'つながっている線（押すと外す）');
+  });
+  lmAdd.forEach(k => line(k, {color:'#ffd54a', weight:5}, () => { lmAdd = lmAdd.filter(x => x !== k); }, 'これからつなぐ線（押すと取り消す）'));
+  listPhotos.forEach((p, i) => {
+    if (!vis(p)) return;
+    const id = p.photoId.id;
+    const mk = L.marker(pt(p), {zIndexOffset:id === lmSel ? 1000 : 0, icon:L.divIcon({className:'', iconSize:[26, 26], iconAnchor:[13, 13], html:`<div class="lnum${id === lmSel ? ' sel' : ''}">${i + 1}</div>`})})
+      .bindTooltip(photoLabel(p), {permanent:true, direction:'top', offset:[0, -12], className:'lmtip'}).addTo(lmLayer);
+    mk.on('click', e => {
+      L.DomEvent.stopPropagation(e);
+      if (!lmSel) lmSel = id;
+      else if (lmSel === id) lmSel = null;
+      else {
+        const k = ek(lmSel, id);
+        if (lmDel.includes(k)) lmDel = lmDel.filter(x => x !== k);
+        else if (!ex.has(k) && !lmAdd.includes(k)) lmAdd.push(k);
+        lmSel = id;
+      }
+      drawLinkMap();
+    });
+  });
+}
+$('lmLevel').onchange = drawLinkMap;
+$('lmUndo').onclick = () => { lmSel = null; lmAdd = []; lmDel = []; $('lmStatus').textContent = ''; drawLinkMap(); };
+$('lmSave').onclick = async () => {
+  const by = Object.fromEntries(listPhotos.map((p, i) => [p.photoId.id, {p, i}]));
+  for (const k of lmAdd){
+    const [a, b] = k.split('|'), d = distM(by[a].p.pose.latLngPair, by[b].p.pose.latLngPair);
+    if (d > 30 && !confirm(`${by[a].i + 1}番と${by[b].i + 1}番が約${Math.round(d)}m離れています。このままつなぎますか？`)) return;
+  }
+  const all = currentLinks(), touched = new Set();
+  lmAdd.forEach(k => { const [a, b] = k.split('|'); all[a].add(b); all[b].add(a); touched.add(a); touched.add(b); });
+  lmDel.forEach(k => { const [a, b] = k.split('|'); all[a].delete(b); all[b].delete(a); touched.add(a); touched.add(b); });
+  const links = {}; touched.forEach(id => links[id] = all[id]);
+  lmAdd = []; lmDel = []; lmSel = null; $('lmSave').disabled = true;
+  await putConnections(links, 'つながりの保存', $('lmStatus'));
+};
+
+/* ---------- 納品レポート ---------- */
+function qrDataUrl(text){
+  if (typeof qrcode === 'undefined') return '';
+  const q = qrcode(0, 'M'); q.addData(text); q.make();
+  const n = q.getModuleCount(), cell = 6, m = cell * 3, cv = document.createElement('canvas');
+  cv.width = cv.height = n * cell + m * 2;
+  const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.fillStyle = '#000';
+  for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) g.fillRect(m + k * cell, m + r * cell, cell, cell);
+  return cv.toDataURL('image/png');
+}
+function dlvHtml(c){
+  const day = s => { const d = s ? new Date(s) : null; return d && !isNaN(d) ? `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}` : '—'; };
+  const ps = allPhotos.filter(p => photoInn(p) === c).sort((a, b) => String(a.captureTime || '9').localeCompare(String(b.captureTime || '9')));
+  const cnt = k => ps.filter(p => (p.mapsPublishStatus || '') === k).length;
+  const pub = cnt('PUBLISHED'), rej = cnt('REJECTED_UNKNOWN'), wait = ps.length - pub - rej;
+  const mapUrl = c.placeId ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(c.placeId)}` : '';
+  const qr = mapUrl ? qrDataUrl(mapUrl) : '';
+  const now = new Date(), hm = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const stHtml = p => p.mapsPublishStatus === 'PUBLISHED' ? '<span class="st ok">公開中</span>' : p.mapsPublishStatus === 'REJECTED_UNKNOWN' ? '<span class="st ng">却下</span>' : '<span class="st wait">審査中</span>';
+  return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>${esc(c.name)}様 360度写真 納品レポート ${ymd(now)}</title>
+  <style>body{font-family:"Hiragino Sans","Noto Sans JP","Yu Gothic UI","Meiryo",sans-serif;color:#3a2e2a;max-width:780px;margin:24px auto;padding:0 16px;line-height:1.6;font-size:13px}
+  h1{font-size:20px;border-bottom:3px solid #b5574b;padding-bottom:6px;margin-bottom:6px}h2{font-size:14px;margin:18px 0 4px}
+  .hint{color:#8a7b73;font-size:11px}.sum{display:flex;gap:16px;align-items:center;background:#faf7f2;border:1px solid #e8dfd6;border-radius:8px;padding:12px 14px;margin-top:10px;break-inside:avoid}
+  .sum .big{font-size:26px;font-weight:bold;color:#4f7a5a}.sum img{width:120px;height:120px;display:block}.sum .q{text-align:center;font-size:10px;color:#8a7b73}
+  table{width:100%;border-collapse:collapse;margin-top:6px}th,td{border-bottom:1px solid #e8dfd6;padding:6px 5px;text-align:left;vertical-align:middle}th{font-size:11px;color:#8a7b73;font-weight:normal}
+  tr{break-inside:avoid}thead{display:table-header-group}td.t img{width:92px;aspect-ratio:2/1;object-fit:cover;border-radius:4px;display:block}
+  td.l a{font-size:10px;color:#b5574b;word-break:break-all}.st{font-weight:bold;white-space:nowrap}.st.ok{color:#4f7a5a}.st.ng{color:#b5574b}.st.wait{color:#8a7b73}
+  .foot{margin-top:20px;font-size:11px;color:#8a7b73;border-top:1px solid #e8dfd6;padding-top:8px;break-inside:avoid}
+  @media print{.noprint{display:none}body{margin:0 auto}}</style></head><body>
+  <div class="noprint" style="text-align:right"><button onclick="print()" style="padding:8px 16px;font-size:14px">印刷・PDFで保存</button></div>
+  <h1>${esc(c.name)} 様　Googleマップ 360度写真 納品レポート</h1>
+  <div>確認日：${jpDate(ymd(now))} ${hm}　<span class="hint">（この日時に Google へ問い合わせた内容です）</span></div>
+  <div class="sum"><div style="flex:1">
+    <div><span class="big">${pub}</span> 枚が Googleマップで公開中です<span class="hint">　／　撮影・登録した写真 全${ps.length}枚${wait ? '・審査中 ' + wait + '枚' : ''}${rej ? '・却下 ' + rej + '枚' : ''}</span></div>
+    ${mapUrl ? `<div style="margin-top:6px">掲載先：Googleマップ「${esc(c.name)}」<br><a href="${esc(mapUrl)}" style="font-size:11px;color:#b5574b;word-break:break-all">${esc(mapUrl)}</a></div>
+    <div class="hint">開いて「ストリートビューと360°ビュー」を押すと、館内の写真が見られます。</div>` : ''}
+  </div>${qr ? `<div class="q"><img src="${qr}" alt="QRコード">お宿さまのGoogleマップ</div>` : ''}</div>
+  <h2>公開した写真の一覧</h2>
+  ${ps.length ? `<table><thead><tr><th>No.</th><th>写真</th><th>場所</th><th>階</th><th>状態</th><th>撮影日</th><th>登録日</th><th>写真のリンク（押すと開きます）</th></tr></thead><tbody>
+  ${ps.map((p, i) => `<tr><td>${i + 1}</td><td class="t"><img src="${esc(p.thumbnailUrl || '')}" alt=""></td><td><b>${esc(photoLabel(p))}</b></td>
+    <td>${esc((p.pose && p.pose.level && p.pose.level.name) || '—')}</td><td>${stHtml(p)}</td><td>${day(p.captureTime)}</td><td>${day(p.uploadTime)}</td>
+    <td class="l">${p.shareLink ? `<a href="${esc(p.shareLink)}">${esc(p.shareLink)}</a>` : '—'}</td></tr>`).join('')}
+  </tbody></table>` : '<div class="hint">このお宿さまの写真はまだありません。</div>'}
+  <div class="foot">・「状態」は、確認日時点で Google（Street View Publish API）から取得した公開状態です。<br>
+  ・写真は、やどてまりの Googleアカウントから公開しています。<br>
+  ・Googleマップ上での見え方（青い点・写真の中の矢印）は、Google側の処理により、反映まで日数がかかったり、変わったりすることがあります。<br>
+  作成：やどてまり</div>
+  </body></html>`;
+}
+$('dlvBtn').onclick = () => {
+  const c = curInn(), m = $('dlvMsg');
+  if (!c){ m.className = 'status err'; m.textContent = '★でお宿さまを選んでください。'; return; }
+  if (!allPhotos.filter(p => photoInn(p) === c).length){ m.className = 'status err'; m.textContent = `「${c.name}」の写真がまだありません。④の「一覧を更新」を押してから、もう一度お試しください。`; return; }
+  const w = window.open('', '_blank'); if (!w){ m.className = 'status err'; m.textContent = 'ポップアップがブロックされました。ブラウザの設定で許可してください。'; return; }
+  w.document.write(dlvHtml(c)); w.document.close();
+  m.className = 'status ok'; m.textContent = '別の画面（タブ）に納品レポートを開きました。右上の「印刷・PDFで保存」を押し、送信先で「PDFに保存」を選ぶとPDFになります。';
+};
+
 /* ---------- お宿さまを切り替えたとき・一覧を読み込んだとき ---------- */
 function refreshLatlng(){ if (pos){ const g = toG(pos); $('latlng').value = g.lat.toFixed(7) + ', ' + g.lng.toFixed(7); } }
 function innChanged(){
   calibText(); refreshLatlng();
-  renderCk(); renderShare(); loadPlan(); drawBPlaced(); if (bItems.length) renderB();
+  renderCk(); renderShare(); loadPlan(); drawBPlaced(); if (bItems.length) renderB(); renderSWarn(); renderBWarn();
   if (token) loadList();
   if (repMode) showReport(repMode);
 }
 function afterListLoaded(){
   autoPostCk(); renderShare(); drawBPlaced();
-  $('repBtn').disabled = $('repAllBtn').disabled = false;
+  $('repBtn').disabled = $('repAllBtn').disabled = $('dlvBtn').disabled = false;
   if (repMode) showReport(repMode);
 }
 
