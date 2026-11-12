@@ -2443,6 +2443,7 @@ function renderLinkMap(){
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'}));
     L.control.scale({imperial:false}).addTo(lMap);
     lmLayer = L.layerGroup().addTo(lMap);
+    PlanLayer(lMap);
     lMap.on('click', () => { if (lmSel){ lmSel = null; drawLinkMap(); } });
   }
   const lvs = [...new Set(pts.map(lmLevelOf))].sort(), cur = $('lmLevel').value;
