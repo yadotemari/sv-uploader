@@ -135,6 +135,7 @@
   .pvin{background:var(--card);border-radius:12px;padding:12px;width:min(1000px,100%);max-height:100%;overflow:auto}
   #pvCv{width:100%;aspect-ratio:16/9;display:block;border-radius:8px;background:#000;cursor:grab;touch-action:none;margin-top:8px}
   .planbox{margin-top:8px}
+  .pGuideBox{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px;padding:6px 8px;border:1px dashed var(--line);border-radius:6px}
   .pTop{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:8px}
   .pGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 16px;margin-top:8px}
   .pLbl{font-size:13px;color:var(--sub)}
@@ -297,7 +298,7 @@
     <div id="bMap" style="margin-top:10px;height:440px;border-radius:8px;border:1px solid var(--line)"></div>
     <details class="labelbox planbox">
       <summary>見取り図を地図に重ねる</summary>
-      <div class="planui"></div>
+      <div class="planui" data-map="bMap"></div>
     </details>
     <div class="hint">地図をクリックすると、黄色の写真がそこに置かれ、次の写真に進みます。番号の丸はドラッグで動かせます。三角が向き（写真の正面の方角）です。</div>
     <div class="row">
@@ -398,7 +399,7 @@
     <div id="map" style="margin-top:10px"></div>
     <details class="labelbox planbox">
       <summary>見取り図を地図に重ねる（館内の位置合わせが楽になります）</summary>
-      <div class="planui"></div>
+      <div class="planui" data-map="map"></div>
     </details>
     <div class="hint">地図をタップすると撮影位置に矢印が立ち、自動で拡大します。さらに「＋」で拡大し、矢印をドラッグして部屋の中の位置まで合わせられます（拡大すると写真はぼやけますが、位置は正確に指定できます）。左下の目盛りで距離の目安がわかります。</div>
     <div class="row">
@@ -786,6 +787,7 @@ function startEdit(p){
   if (pose.latLngPair) setPos(toM(pose.latLngPair.latitude, pose.latLngPair.longitude));
   $('heading').value = Math.round(pose.heading || 0); $('heading').oninput();
   if (pose.level){ $('levelNum').value = pose.level.number || 0; $('levelName').value = pose.level.name || ''; }
+  try{ planFollow(map); }catch(e){}
   $('editBar').style.display = 'block';
   $('editBar').innerHTML = '';
   if (p.thumbnailUrl) $('editBar').insertAdjacentHTML('beforeend', `<img src="${p.thumbnailUrl}" alt="" style="width:120px;aspect-ratio:2/1;object-fit:cover;border-radius:6px;display:block;margin-bottom:6px">`);
@@ -1888,45 +1890,73 @@ $('repPrint').onclick = () => {
 };
 
 /* ---------- ② 見取り図を地図に重ねる ---------- */
-const plan = {d:null}, planLayers = [];
+/* ---------- 見取り図（階ごと） ----------
+   保存：svPlan_お宿ID = {floors:{'1':{img,lat,lng,w,rot,op,show,lock}, '2':{…}}, guide:true}
+   地図ごとに「今の階」を持ち、写真の階数の欄に合わせて自動で切り替わる */
+const plan = {floors:{}, guide:true}, planLayers = [];
 function planKey(){ const c = curInn(); return 'svPlan_' + (c ? c.id : '_'); }
+function floorOf(v){ const n = parseInt(v, 10); return isNaN(n) ? null : String(n); }
+function floorName(f){ const n = +f; return n >= 1 ? n + '階' : 'B' + (1 - n) + '階'; }
+function planFloors(){ return Object.keys(plan.floors).sort((a, b) => a - b); }
 function savePlan(){
-  if (!plan.d) { try{ localStorage.removeItem(planKey()); }catch(e){} return; }
-  if (!jset(planKey(), plan.d)) alert('見取り図の画像が大きすぎて保存できませんでした。小さめの画像にしてください（表示はこのままできます）。');
+  if (!planFloors().length){ try{ localStorage.removeItem(planKey()); }catch(e){} return; }
+  if (!jset(planKey(), {floors:plan.floors, guide:plan.guide})) alert('見取り図の画像が大きすぎて保存できませんでした。小さめの画像にしてください（表示はこのままできます）。');
 }
-function PlanLayer(m){
+function planRenderAll(){ planLayers.forEach(l => l.render()); renderPlanUI(); }
+/* 位置合わせ用に、うすく重ねる「ほかの階」（近い階から選ぶ） */
+function guideFloor(f){
+  const o = planFloors().filter(x => x !== f); if (!o.length) return null;
+  return o.sort((a, b) => Math.abs(a - f) - Math.abs(b - f) || a - b)[0];
+}
+function PlanLayer(m, getFloor){
   const pane = m.createPane('plan'); pane.style.zIndex = 350; pane.style.pointerEvents = 'none';
-  const img = document.createElement('img');
-  img.style.cssText = 'position:absolute;left:0;top:0;max-width:none;transform-origin:50% 50%;pointer-events:none;display:none';
-  pane.appendChild(img);
+  const mk = () => { const im = document.createElement('img'); im.style.cssText = 'position:absolute;left:0;top:0;max-width:none;transform-origin:50% 50%;pointer-events:none;display:none'; pane.appendChild(im); return im; };
+  const gimg = mk(), img = mk();
+  gimg.style.filter = 'grayscale(1)';
+  const o = {map:m, manual:null};
+  o.floor = () => o.manual != null ? o.manual : getFloor();
+  const cur = () => { const f = o.floor(); return f != null ? plan.floors[f] : null; };
   const handle = L.marker([0, 0], {draggable:true, zIndexOffset:1000, icon:L.divIcon({className:'', iconSize:[26, 26], iconAnchor:[13, 13], html:'<div class="planhandle" title="ドラッグで見取り図を動かす">✥</div>'})});
-  handle.on('drag', e => { if (!plan.d) return; const ll = e.target.getLatLng(); plan.d.lat = ll.lat; plan.d.lng = ll.lng; planLayers.forEach(l => l.render()); });
+  handle.on('drag', e => { const d = cur(); if (!d) return; const ll = e.target.getLatLng(); d.lat = ll.lat; d.lng = ll.lng; planLayers.forEach(l => l.render()); });
   handle.on('dragend', savePlan);
-  function render(){
-    const d = plan.d;
-    if (!d || !d.show){ img.style.display = 'none'; if (m.hasLayer(handle)) m.removeLayer(handle); return; }
-    if (img.getAttribute('src') !== d.img) img.src = d.img;
+  function place(el, d, op){
+    if (el.getAttribute('src') !== d.img) el.src = d.img;
     const p = m.latLngToLayerPoint([d.lat, d.lng]);
     const mpp = 40075016.686 * Math.cos(d.lat * Math.PI / 180) / Math.pow(2, m.getZoom() + 8);
-    img.style.width = (d.w / mpp) + 'px';
-    img.style.left = p.x + 'px'; img.style.top = p.y + 'px';
-    img.style.transform = `translate(-50%,-50%) rotate(${d.rot}deg)`;
-    img.style.opacity = d.op; img.style.display = 'block';
+    el.style.width = (d.w / mpp) + 'px'; el.style.left = p.x + 'px'; el.style.top = p.y + 'px';
+    el.style.transform = `translate(-50%,-50%) rotate(${d.rot}deg)`; el.style.opacity = op; el.style.display = 'block';
+  }
+  o.render = function(){
+    const f = o.floor(), d = cur();
+    // 位置合わせ中（✥が出ている）だけ、ほかの階をうすく重ねる
+    const g = d && !d.lock && plan.guide ? plan.floors[guideFloor(f)] : null;
+    if (g) place(gimg, g, 0.35); else gimg.style.display = 'none';
+    if (!d || !d.show){ img.style.display = 'none'; if (m.hasLayer(handle)) m.removeLayer(handle); return; }
+    place(img, d, d.op);
     handle.setLatLng([d.lat, d.lng]);
     if (d.lock){ if (m.hasLayer(handle)) m.removeLayer(handle); }
     else if (!m.hasLayer(handle)) handle.addTo(m);
-  }
-  m.on('zoomend viewreset', render);
-  m.on('zoomstart', () => { img.style.display = 'none'; });
-  const o = {map:m, render}; planLayers.push(o); render(); return o;
+  };
+  m.on('zoomend viewreset', o.render);
+  m.on('zoomstart', () => { img.style.display = 'none'; gimg.style.display = 'none'; });
+  planLayers.push(o); o.render(); return o;
 }
 const PLAN_UI = `
+  <div class="pTop">
+    <label style="margin:0">見取り図の階</label>
+    <select class="pFloor" style="width:auto;font-size:14px;padding:5px 8px"></select>
+    <span class="pFloorNote hint" style="margin:0"></span>
+  </div>
   <div class="pTop">
     <input type="file" class="pFile" accept="image/*">
     <label class="check pShowL" style="margin:0"><input type="checkbox" class="pShow"> 表示する</label>
   </div>
-  <div class="hint pHelp">見取り図の画像（紙を撮った写真でもOK）を選び、地図の上の黄色い <b>✥</b> をドラッグして建物に重ねます。お宿さまごとに、このパソコンに保存されます。</div>
+  <div class="hint pHelp">見取り図の画像（紙を撮った写真でもOK）を、<b>階ごとに</b>選びます。地図の上の黄色い <b>✥</b> をドラッグして建物に重ねます。お宿さまごとに、このパソコンに保存されます。</div>
   <div class="pCtl" style="display:none">
+    <div class="pGuideBox">
+      <label class="check" style="margin:0"><input type="checkbox" class="pGuide"> <span class="pGuideTxt"></span></label>
+      <button class="ghost pSameRot"></button>
+    </div>
     <div class="pGrid">
       <div><div class="pLbl">横幅 <b class="pWv"></b> m</div>
         <div class="pRow"><button class="ghost pStep" data-k="w" data-v="-0.5" title="0.5m小さく">−</button><input type="range" class="pW" min="3" max="200" step="0.5"><button class="ghost pStep" data-k="w" data-v="0.5" title="0.5m大きく">＋</button></div></div>
@@ -1938,25 +1968,47 @@ const PLAN_UI = `
     <div class="pBtns">
       <button class="ghost pCenter">地図の真ん中に持ってくる</button>
       <button class="ghost pLock"></button>
-      <button class="ghost pDel">見取り図を消す</button>
+      <button class="ghost pDel"></button>
     </div>
   </div>`;
+function layerOfUI(u){ return u.dataset.map === 'bMap' ? planLayers.find(l => l.map === bMap) : planLayers.find(l => l.map === map); }
 function activeMap(){ return (bMap && $('batchMode').style.display !== 'none') ? bMap : map; }
 function renderPlanUI(){
   document.querySelectorAll('.planui').forEach(u => {
     if (!u.dataset.init){ u.innerHTML = PLAN_UI; u.dataset.init = '1'; bindPlanUI(u); }
-    const d = plan.d;
+    const ly = layerOfUI(u); if (!ly) return;
+    const f = ly.floor() || '1', fl = planFloors();
+    // 階の選択肢：B1〜10階。登録済みの階には ✓
+    const sel = u.querySelector('.pFloor'), opts = [];
+    for (let n = 10; n >= -1; n--) opts.push(String(n));
+    fl.forEach(k => { if (!opts.includes(k)) opts.push(k); });
+    sel.innerHTML = opts.map(k => `<option value="${k}">${floorName(k)}${plan.floors[k] ? '　✓ 登録済み' : ''}</option>`).join('');
+    sel.value = f;
+    u.querySelector('.pFloorNote').textContent = ly.manual != null ? '（手で切り替え中。写真の「階数」を変えると、その階に戻ります）' : '（写真の「階数」に合わせて自動で切り替わります）';
+    const d = plan.floors[f];
     u.querySelector('.pCtl').style.display = d ? '' : 'none'; u.querySelector('.pShowL').style.display = d ? '' : 'none';
+    u.querySelector('.pHelp').innerHTML = d ? `${floorName(f)}の見取り図です。画像を選び直すと、${floorName(f)}の見取り図だけが入れ替わります。`
+      : `<b>${floorName(f)}の見取り図はまだありません。</b>「ファイルの選択」で${floorName(f)}の画像を選んでください。` + (fl.length ? `（登録済み：${fl.map(floorName).join('・')}）` : '');
     if (!d) return;
+    const g = guideFloor(f);
+    u.querySelector('.pGuideBox').style.display = g ? '' : 'none';
+    if (g){
+      u.querySelector('.pGuide').checked = plan.guide;
+      u.querySelector('.pGuideTxt').textContent = `${floorName(g)}の見取り図を、下に灰色でうすく重ねる（✥が出ている間だけ）`;
+      u.querySelector('.pSameRot').textContent = `${floorName(g)}と同じ回転にする（${plan.floors[g].rot}°）`;
+    }
     u.querySelector('.pShow').checked = d.show;
     u.querySelector('.pW').value = d.w; u.querySelector('.pWv').textContent = d.w;
     u.querySelector('.pR').value = d.rot; u.querySelector('.pRv').textContent = d.rot;
     u.querySelector('.pO').value = Math.round(d.op * 100); u.querySelector('.pOv').textContent = Math.round(d.op * 100);
     u.querySelector('.pLock').textContent = d.lock ? '位置の固定を外す（✥を出す）' : '位置を固定する（✥を隠す）';
+    u.querySelector('.pDel').textContent = `${floorName(f)}の見取り図を消す`;
   });
 }
 function bindPlanUI(u){
-  const upd = (fn, save = true) => { if (!plan.d) return; fn(plan.d); planLayers.forEach(l => l.render()); renderPlanUI(); if (save) savePlan(); };
+  const ly = () => layerOfUI(u), fl = () => ly().floor() || '1';
+  const upd = (fn, save = true) => { const d = plan.floors[fl()]; if (!d) return; fn(d); planRenderAll(); if (save) savePlan(); };
+  u.querySelector('.pFloor').onchange = e => { const l = ly(); l.manual = null; if (l.floor() !== e.target.value) l.manual = e.target.value; planRenderAll(); };
   u.querySelector('.pFile').onchange = e => {
     const f = e.target.files[0]; if (!f) return;
     const im = new Image();
@@ -1968,21 +2020,23 @@ function bindPlanUI(u){
       g.drawImage(im, 0, 0, cv.width, cv.height);
       let url = cv.toDataURL('image/jpeg', 0.82);
       if (alpha){ url = cv.toDataURL('image/webp', 0.85); if (!url.startsWith('data:image/webp')) url = cv.toDataURL('image/png'); }
-      const ctr = activeMap().getCenter();
-      const old = plan.d;
-      plan.d = {img:url, lat:old ? old.lat : ctr.lat, lng:old ? old.lng : ctr.lng, w:old ? old.w : 30, rot:old ? old.rot : 0, op:old ? old.op : 0.6, show:true, lock:false};
+      const k = fl(), old = plan.floors[k] || plan.floors[guideFloor(k)];   // はじめは、ほかの階と同じ位置・大きさ・回転から
+      const ctr = ly().map.getCenter();
+      plan.floors[k] = {img:url, lat:old ? old.lat : ctr.lat, lng:old ? old.lng : ctr.lng, w:old ? old.w : 30, rot:old ? old.rot : 0, op:old ? old.op : 0.6, show:true, lock:false};
       URL.revokeObjectURL(im.src);
-      planLayers.forEach(l => l.render()); renderPlanUI(); savePlan();
+      planRenderAll(); savePlan();
       e.target.value = '';
     };
     im.src = URL.createObjectURL(f);
   };
   u.querySelector('.pShow').onchange = e => upd(d => d.show = e.target.checked);
+  u.querySelector('.pGuide').onchange = e => { plan.guide = e.target.checked; planRenderAll(); savePlan(); };
+  u.querySelector('.pSameRot').onclick = () => { const g = plan.floors[guideFloor(fl())]; if (g) upd(d => d.rot = g.rot); };
   u.querySelector('.pW').oninput = e => upd(d => d.w = +e.target.value, false);
   u.querySelector('.pR').oninput = e => upd(d => d.rot = +e.target.value, false);
   u.querySelector('.pO').oninput = e => upd(d => d.op = +e.target.value / 100, false);
   ['.pW', '.pR', '.pO'].forEach(k => u.querySelector(k).onchange = savePlan);
-  u.querySelector('.pCenter').onclick = () => upd(d => { const c = activeMap().getCenter(); d.lat = c.lat; d.lng = c.lng; d.show = true; });
+  u.querySelector('.pCenter').onclick = () => upd(d => { const c = ly().map.getCenter(); d.lat = c.lat; d.lng = c.lng; d.show = true; });
   u.querySelector('.pLock').onclick = () => upd(d => d.lock = !d.lock);
   u.querySelectorAll('.pStep').forEach(bt => bt.onclick = () => upd(d => {
     const k = bt.dataset.k, v = +bt.dataset.v;
@@ -1990,10 +2044,21 @@ function bindPlanUI(u){
     else if (k === 'rot'){ let r = Math.round((d.rot + v) * 10) / 10; if (r > 180) r -= 360; if (r < -180) r += 360; d.rot = r; }
     else d.op = Math.max(0.1, Math.min(1, Math.round((d.op + v) * 100) / 100));
   }));
-  u.querySelector('.pDel').onclick = () => { if (!confirm('このお宿さまの見取り図を消しますか？')) return; plan.d = null; savePlan(); planLayers.forEach(l => l.render()); renderPlanUI(); };
+  u.querySelector('.pDel').onclick = () => { const k = fl(); if (!confirm(`${floorName(k)}の見取り図を消しますか？（ほかの階の見取り図は残ります）`)) return; delete plan.floors[k]; savePlan(); planRenderAll(); };
 }
-function loadPlan(){ plan.d = jget(planKey(), null); planLayers.forEach(l => l.render()); renderPlanUI(); }
-PlanLayer(map);
+function loadPlan(){
+  const s = jget(planKey(), null);
+  plan.floors = {}; plan.guide = true;
+  if (s && s.img) plan.floors['1'] = s;                 // 前の形（1枚だけ）は1階として読み込む
+  else if (s && s.floors){ plan.floors = s.floors; plan.guide = s.guide !== false; }
+  planLayers.forEach(l => l.manual = null);
+  planRenderAll();
+}
+/* 写真の「階数」を変えたら、その階の見取り図に切り替える */
+function planFollow(m){ const l = planLayers.find(x => x.map === m); if (l){ l.manual = null; } planRenderAll(); }
+PlanLayer(map, () => floorOf($('levelNum').value));
+$('levelNum').addEventListener('input', () => planFollow(map));
+
 
 
 /* ---------- ぼかし ---------- */
@@ -2174,7 +2239,9 @@ function initBatchMap(){
     const nx = bItems.findIndex((x, i) => i > bCur && !x.pos && !x.uploaded);
     if (nx >= 0) selectB(nx); else renderB();
   });
-  PlanLayer(bMap);
+  PlanLayer(bMap, () => floorOf($('bLevelNum').value));
+  $('bLevelNum').addEventListener('input', () => planFollow(bMap));
+  renderPlanUI();
   drawBPlaced();
   const c = curInn(); if (c && c.lat != null) bMap.setView([c.lat, c.lng], Math.max(c.zoom || 18, 19));
 }
@@ -2211,6 +2278,7 @@ function loadBFields(){
   $('bHeading').value = it.heading; $('bHeadingVal').textContent = it.heading;
   $('bPlace').value = it.place; $('bEn').value = it.en;
   $('bLevelNum').value = it.lvlNum; $('bLevelName').value = it.lvlName;
+  try{ planFollow(bMap); }catch(e){}
 }
 function renderBPrev(){
   const cv = $('bLblPrev'); if (!cv) return;
@@ -2466,7 +2534,12 @@ function renderLinkMap(){
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:23, maxNativeZoom:19, attribution:'&copy; OpenStreetMap'}));
     L.control.scale({imperial:false}).addTo(lMap);
     lmLayer = L.layerGroup().addTo(lMap);
-    PlanLayer(lMap);
+    PlanLayer(lMap, () => {
+      const v = $('lmLevel').value, fl = planFloors();
+      if ($('lmLevelBox').style.display !== 'none' && v !== ''){ const p = listPhotos.find(x => lmLevelOf(x) === v && x.pose.level); return p ? String(p.pose.level.number || 0) : null; }
+      const lv = [...new Set(listPhotos.filter(x => x.pose && x.pose.level).map(x => String(x.pose.level.number || 0)))];
+      return lv.length === 1 ? lv[0] : (fl.length === 1 ? fl[0] : null);
+    });
     lMap.on('click', () => { if (lmSel){ lmSel = null; drawLinkMap(); } });
   }
   const lvs = [...new Set(pts.map(lmLevelOf))].sort(), cur = $('lmLevel').value;
@@ -2529,7 +2602,7 @@ function drawLinkMap(){
     });
   });
 }
-$('lmLevel').onchange = drawLinkMap;
+$('lmLevel').onchange = () => { drawLinkMap(); planLayers.forEach(l => l.render()); };
 $('lmUndo').onclick = () => { lmSel = null; lmAdd = []; lmDel = []; $('lmStatus').textContent = ''; drawLinkMap(); };
 $('lmSave').onclick = async () => {
   const by = Object.fromEntries(listPhotos.map((p, i) => [p.photoId.id, {p, i}]));
