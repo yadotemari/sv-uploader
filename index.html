@@ -1963,10 +1963,14 @@ function bindPlanUI(u){
     im.onload = () => {
       const s = Math.min(1, 1400 / Math.max(im.width, im.height));
       const cv = document.createElement('canvas'); cv.width = Math.round(im.width * s); cv.height = Math.round(im.height * s);
-      const g = cv.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      const g = cv.getContext('2d'), alpha = /png|webp/.test(f.type);   // 背景が透明な画像は、透明のまま使う
+      if (!alpha){ g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height); }
+      g.drawImage(im, 0, 0, cv.width, cv.height);
+      let url = cv.toDataURL('image/jpeg', 0.82);
+      if (alpha){ url = cv.toDataURL('image/webp', 0.85); if (!url.startsWith('data:image/webp')) url = cv.toDataURL('image/png'); }
       const ctr = activeMap().getCenter();
       const old = plan.d;
-      plan.d = {img:cv.toDataURL('image/jpeg', 0.82), lat:old ? old.lat : ctr.lat, lng:old ? old.lng : ctr.lng, w:old ? old.w : 30, rot:old ? old.rot : 0, op:old ? old.op : 0.6, show:true, lock:false};
+      plan.d = {img:url, lat:old ? old.lat : ctr.lat, lng:old ? old.lng : ctr.lng, w:old ? old.w : 30, rot:old ? old.rot : 0, op:old ? old.op : 0.6, show:true, lock:false};
       URL.revokeObjectURL(im.src);
       planLayers.forEach(l => l.render()); renderPlanUI(); savePlan();
       e.target.value = '';
